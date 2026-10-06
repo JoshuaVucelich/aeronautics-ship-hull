@@ -1,0 +1,16 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "com.vws.aeronauticsshiphull.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "mixins": [
+    "RapierPhysicsPipelineMixin",
+    "ServerLevelPlotMixin",
+    "ServerSubLevelMixin",
+    "SubLevelPhysicsSystemMixin",
+    "accessor.RapierPhysicsPipelineAccessor"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}
