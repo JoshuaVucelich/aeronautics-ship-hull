@@ -8,7 +8,8 @@
     "ServerLevelPlotMixin",
     "ServerSubLevelMixin",
     "SubLevelPhysicsSystemMixin",
-    "accessor.RapierPhysicsPipelineAccessor"
+    "accessor.RapierPhysicsPipelineAccessor",
+    "accessor.Rapier3DInvoker"
   ],
   "injectors": {
     "defaultRequire": 1

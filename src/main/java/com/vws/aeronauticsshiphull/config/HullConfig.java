@@ -12,6 +12,7 @@ public final class HullConfig {
     private static final ModConfigSpec.DoubleValue GRAVITY;
     private static final ModConfigSpec.BooleanValue PILOTED_USES_RAPIER;
     private static final ModConfigSpec.BooleanValue PROFILE;
+    private static final ModConfigSpec.BooleanValue CHEAP_SOFT_SLEEP;
 
     static {
         ModConfigSpec.Builder b = new ModConfigSpec.Builder();
@@ -30,6 +31,11 @@ public final class HullConfig {
         PILOTED_USES_RAPIER = b.comment("Piloted ships stay on full Rapier (still one rigid body, never per-block)")
                 .define("pilotedUsesRapier", true);
         PROFILE = b.comment("Count cheap vs rapier steps for /shiphull profile").define("profile", true);
+        CHEAP_SOFT_SLEEP = b.comment(
+                "Phase 5: on CHEAP, empty Rapier local bounds (disable colliders) instead of pipeline.remove "
+                + "(remove panics natives). Body stays in the scene; CheapIntegrator owns pose. "
+                + "Restored via onStatsChanged on FULL/REBUILDING.")
+                .define("cheapSoftSleep", true);
         b.pop();
         SPEC = b.build();
     }
@@ -42,6 +48,7 @@ public final class HullConfig {
     public static double gravity() { return GRAVITY.get(); }
     public static boolean pilotedUsesRapier() { return PILOTED_USES_RAPIER.get(); }
     public static boolean profile() { return PROFILE.get(); }
+    public static boolean cheapSoftSleep() { return CHEAP_SOFT_SLEEP.get(); }
 
     private HullConfig() {}
 }

@@ -16,6 +16,9 @@ import com.vws.aeronauticsshiphull.api.ShipCadence;
 import com.vws.aeronauticsshiphull.config.HullConfig;
 import com.vws.aeronauticsshiphull.nested.NestedAssembly;
 import com.vws.aeronauticsshiphull.profile.HullProfiler;
+import dev.ryanhcode.sable.physics.impl.rapier.RapierPhysicsPipeline;
+import dev.ryanhcode.sable.physics.impl.rapier.Rapier3D;
+import com.vws.aeronauticsshiphull.mixin.accessor.Rapier3DInvoker;
 
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import it.unimi.dsi.fastutil.longs.LongSet;
@@ -46,6 +49,8 @@ public final class ShipHullManager {
     private final Map<UUID, ShipHull> ships = new ConcurrentHashMap<>();
     private int tickCounter;
     private boolean globallyEnabled = true;
+    /** null = use config; Phase 5 A/B override for cheapSoftSleep. */
+    public static Boolean softSleepOverride = null;
 
     private ShipHullManager(ServerLevel level) {
         this.level = level;
@@ -131,9 +136,10 @@ public final class ShipHullManager {
     }
 
     /**
-     * CHEAP ships stay registered in Rapier (remove() panics natives on later getLinearVelocity).
-     * We instead: skip forces (mixin), integrate pose ourselves, teleport + resetVelocity so the
-     * solver sees a kinematic-like body. FULL/REBUILDING leave Rapier in control.
+     * CHEAP ships stay registered in Rapier (pipeline.remove panics natives on later getLinearVelocity;
+     * Sable's Rapier3D JNI also has no sleep/setEnabled export — nm shows only wakeUpObject).
+     * Phase 5 soft-sleep: empty local bounds (disable colliders) via setLocalBounds, skip forces,
+     * CheapIntegrator owns pose, teleport+resetVelocity each sync. FULL/REBUILDING restore bounds.
      */
     private void syncRapierMembership() {
         SubLevelPhysicsSystem phys = SubLevelPhysicsSystem.get(level);
@@ -146,6 +152,9 @@ public final class ShipHullManager {
             hull.inRapier = true;
             if (hull.mode == HullMode.CHEAP) {
                 try {
+                    if (cheapSoftSleepEnabled() && !hull.collidersDisabled) {
+                        softSleepColliders(hull);
+                    }
                     var pose = hull.subLevel().logicalPose();
                     pipe.teleport(hull.subLevel(), pose.position(), pose.orientation());
                     pipe.resetVelocity(hull.subLevel());
@@ -153,7 +162,59 @@ public final class ShipHullManager {
                 } catch (Throwable t) {
                     LOGGER.debug("[shiphull] cheap sync {}: {}", hull.id, t.toString());
                 }
+            } else if (hull.collidersDisabled) {
+                restoreColliders(hull, pipe);
             }
+        }
+    }
+
+
+    public static boolean cheapSoftSleepEnabled() {
+        return softSleepOverride != null ? softSleepOverride : HullConfig.cheapSoftSleep();
+    }
+
+    public void setSoftSleep(boolean on) {
+        softSleepOverride = on;
+        if (!on) {
+            SubLevelPhysicsSystem phys = SubLevelPhysicsSystem.get(level);
+            if (phys == null) return;
+            PhysicsPipeline pipe = phys.getPipeline();
+            if (pipe == null) return;
+            for (ShipHull hull : ships.values()) {
+                if (hull.collidersDisabled) restoreColliders(hull, pipe);
+            }
+        }
+    }
+
+    /** Empty Rapier local bounds so the body contributes no voxel colliders (still in the scene). */
+    private void softSleepColliders(ShipHull hull) {
+        try {
+            long scene = Rapier3D.getSceneHandle(level);
+            int id = Rapier3D.getID(hull.subLevel());
+            // min > max => empty AABB / no collider volume
+            Rapier3DInvoker.ash$setLocalBounds(scene, id, 0, 0, 0, -1, -1, -1);
+            hull.collidersDisabled = true;
+            HullProfiler.COLLIDER_DISABLES.incrementAndGet();
+            LOGGER.debug("[shiphull] soft-sleep colliders off for {}", hull.id);
+        } catch (Throwable t) {
+            LOGGER.warn("[shiphull] soft-sleep failed for {}: {}", hull.id, t.toString());
+        }
+    }
+
+    private void restoreColliders(ShipHull hull, PhysicsPipeline pipe) {
+        try {
+            if (pipe instanceof RapierPhysicsPipeline) {
+                pipe.onStatsChanged(hull.subLevel());
+            } else {
+                // Fallback: re-apply bounds from plot via onStatsChanged default
+                pipe.onStatsChanged(hull.subLevel());
+            }
+            hull.collidersDisabled = false;
+            HullProfiler.COLLIDER_RESTORES.incrementAndGet();
+            try { pipe.wakeUp(hull.subLevel()); } catch (Throwable ignored) {}
+            LOGGER.debug("[shiphull] restored colliders for {}", hull.id);
+        } catch (Throwable t) {
+            LOGGER.warn("[shiphull] collider restore failed for {}: {}", hull.id, t.toString());
         }
     }
 
@@ -291,6 +352,10 @@ public final class ShipHullManager {
             SubLevelPhysicsSystem phys = SubLevelPhysicsSystem.get(level);
             if (phys != null) reenterRapier(hull, phys.getPipeline());
         }
+        if (mode.usesRapier() && hull.collidersDisabled) {
+            SubLevelPhysicsSystem phys = SubLevelPhysicsSystem.get(level);
+            if (phys != null) restoreColliders(hull, phys.getPipeline());
+        }
         if (prev == HullMode.CHEAP && mode.usesRapier()) {
             HullProfiler.MODE_PROMOTIONS.incrementAndGet();
         }
@@ -424,8 +489,8 @@ public final class ShipHullManager {
             if (h.piloted) piloted++;
             voxels += h.voxels.size();
         }
-        return String.format("ships=%d cheap=%d full=%d rebuilding=%d piloted=%d voxels=%d enabled=%s bridge=%s demotesSuppressed=%d | %s",
+        return String.format("ships=%d cheap=%d full=%d rebuilding=%d piloted=%d voxels=%d enabled=%s softSleep=%s bridge=%s demotesSuppressed=%d | %s",
                 ships.size(), cheap, full, rebuild, piloted, voxels,
-                globallyEnabled(), ShipCadence.factoryBridgeActive(), demotesSuppressed, HullProfiler.summary());
+                globallyEnabled(), cheapSoftSleepEnabled(), ShipCadence.factoryBridgeActive(), demotesSuppressed, HullProfiler.summary());
     }
 }

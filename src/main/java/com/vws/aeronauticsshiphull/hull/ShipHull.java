@@ -46,6 +46,8 @@ public final class ShipHull {
     public HullMode mode = HullMode.FULL;
     public boolean piloted;
     public boolean inRapier = true;
+    /** Phase 5: CHEAP soft-sleep emptied Rapier local bounds (colliders off). */
+    public boolean collidersDisabled = false;
     public boolean enabled = true;
 
     /** Local-space axis-aligned hull (block coords). */

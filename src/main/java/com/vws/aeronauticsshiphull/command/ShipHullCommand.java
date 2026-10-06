@@ -44,6 +44,13 @@ public final class ShipHullCommand {
                 .then(Commands.literal("status").executes(ShipHullCommand::status))
                 .then(Commands.literal("enable").executes(c -> setEnabled(c, true)))
                 .then(Commands.literal("disable").executes(c -> setEnabled(c, false)))
+                .then(Commands.literal("softsleep")
+                        .then(Commands.literal("on").executes(c -> setSoftSleep(c, true)))
+                        .then(Commands.literal("off").executes(c -> setSoftSleep(c, false)))
+                        .executes(c -> {
+                            c.getSource().sendSuccess(() -> Component.literal("softSleep=" + ShipHullManager.cheapSoftSleepEnabled()), false);
+                            return 1;
+                        }))
                 .then(Commands.literal("profile")
                         .executes(ShipHullCommand::profile)
                         .then(Commands.literal("reset").executes(c -> { HullProfiler.reset(); c.getSource().sendSuccess(() -> Component.literal("profile reset"), false); return 1; })))
@@ -107,6 +114,12 @@ public final class ShipHullCommand {
     private static int status(CommandContext<CommandSourceStack> c) {
         String line = mgr(c).statusLine();
         c.getSource().sendSuccess(() -> Component.literal(line), false);
+        return 1;
+    }
+
+    private static int setSoftSleep(CommandContext<CommandSourceStack> c, boolean on) {
+        mgr(c).setSoftSleep(on);
+        c.getSource().sendSuccess(() -> Component.literal("softSleep=" + on + " (empty local bounds; no pipeline.remove)"), true);
         return 1;
     }
 
