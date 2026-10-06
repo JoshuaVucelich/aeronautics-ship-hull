@@ -28,13 +28,6 @@ public final class HullProfiler {
     public static final AtomicLong PARKED_DRIFT_FIXES = new AtomicLong();
     public static final AtomicLong COLLIDER_UPDATES_DEFERRED = new AtomicLong();
     public static final AtomicLong COLLIDER_UPDATES_REPLAYED = new AtomicLong();
-    // Phase 7
-    public static final AtomicLong HULL_AABB_APPLIES = new AtomicLong();
-    public static final AtomicLong HULL_AABB_RESTORES = new AtomicLong();
-    public static final AtomicLong MASS_CACHE_SKIPS = new AtomicLong();
-    public static final AtomicLong DISTANT_CHEAP_STEPS = new AtomicLong();
-    public static final AtomicLong NETWORK_THROTTLES = new AtomicLong();
-    public static final AtomicLong BLOCK_COLLIDER_SKIPS = new AtomicLong();
 
     public static void reset() {
         RAPIER_STEPS.set(0);
@@ -58,12 +51,6 @@ public final class HullProfiler {
         PARKED_DRIFT_FIXES.set(0);
         COLLIDER_UPDATES_DEFERRED.set(0);
         COLLIDER_UPDATES_REPLAYED.set(0);
-        HULL_AABB_APPLIES.set(0);
-        HULL_AABB_RESTORES.set(0);
-        MASS_CACHE_SKIPS.set(0);
-        DISTANT_CHEAP_STEPS.set(0);
-        NETWORK_THROTTLES.set(0);
-        BLOCK_COLLIDER_SKIPS.set(0);
     }
 
     public static String phase6Summary() {
@@ -72,10 +59,7 @@ public final class HullProfiler {
         return String.format(
                 "sableTickCalls=%d sableTickAvgUs=%.1f idleSkips=%d reducedSubstepTicks=%d dormantSkips=%d parks=%d wakes=%d driftFixes=%d colliderDeferred=%d colliderReplayed=%d",
                 sc, sableUs, IDLE_STEP_SKIPS.get(), REDUCED_SUBSTEP_TICKS.get(), DORMANT_WORK_SKIPS.get(),
-                PARKS.get(), WAKES.get(), PARKED_DRIFT_FIXES.get(), COLLIDER_UPDATES_DEFERRED.get(), COLLIDER_UPDATES_REPLAYED.get())
-                + String.format(" | p7 aabbOn=%d aabbOff=%d massSkip=%d distantCheap=%d netThrottle=%d blockSkip=%d",
-                HULL_AABB_APPLIES.get(), HULL_AABB_RESTORES.get(), MASS_CACHE_SKIPS.get(),
-                DISTANT_CHEAP_STEPS.get(), NETWORK_THROTTLES.get(), BLOCK_COLLIDER_SKIPS.get());
+                PARKS.get(), WAKES.get(), PARKED_DRIFT_FIXES.get(), COLLIDER_UPDATES_DEFERRED.get(), COLLIDER_UPDATES_REPLAYED.get());
     }
 
     public static String summary() {

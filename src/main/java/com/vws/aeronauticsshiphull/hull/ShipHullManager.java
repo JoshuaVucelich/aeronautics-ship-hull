@@ -53,8 +53,6 @@ public final class ShipHullManager {
     public static Boolean softSleepOverride = null;
     /** Phase 6 A/B switch (null/true = on). Off reproduces Phase 5 behaviour in the same jar. */
     public static Boolean phase6Override = null;
-    /** Phase 7 A/B switch (null/true = on). In-motion cuts. */
-    public static Boolean phase7Override = null;
     /** True while this mod itself calls into the pipeline (suppresses wake hooks). Server thread only. */
     public static boolean INTERNAL = false;
     /** True while replaying deferred collider updates (bypasses the deferral hook). */
@@ -146,22 +144,11 @@ public final class ShipHullManager {
         return phase6Override == null || phase6Override;
     }
 
-    public static boolean phase7() {
-        return (phase7Override == null || phase7Override) && HullConfig.phase7();
-    }
-
-    /** CHEAP/PARKED ship whose substep work (begin/mass merge/pose readback) Sable may skip.
-     * Phase 7 also skips mass merge for unpiloted simplified-hull FULL ships (cached mass). */
+    /** CHEAP/PARKED ship whose substep work (begin/mass merge/pose readback) Sable may skip. */
     public boolean skipDormantWork(ServerSubLevel sub) {
-        if (!globallyEnabled()) return false;
+        if (!phase6() || !globallyEnabled() || !HullConfig.skipDormantSubstepWork()) return false;
         ShipHull h = ships.get(sub.getUniqueId());
-        if (h == null || !h.enabled) return false;
-        if (phase6() && HullConfig.skipDormantSubstepWork() && h.mode.dormant()) return true;
-        if (phase7() && HullConfig.cacheMass() && h.simplifiedHullCollider && !h.piloted && h.mode == HullMode.FULL) {
-            HullProfiler.MASS_CACHE_SKIPS.incrementAndGet();
-            return true;
-        }
-        return false;
+        return h != null && h.enabled && h.mode.dormant();
     }
 
     /** Called at the head of Sable's substep loop: skip it entirely this tick? */
@@ -204,16 +191,11 @@ public final class ShipHullManager {
 
     /** Defer a voxel collider update for a ship whose colliders are off. Returns true if deferred. */
     public boolean deferColliderUpdate(ServerSubLevel sub, int gx, int gy, int gz) {
-        if (REPLAYING) return false;
+        if (REPLAYING || !phase6() || !HullConfig.batchColliderUpdates()) return false;
         ShipHull h = ships.get(sub.getUniqueId());
-        if (h == null) return false;
-        boolean soft = phase6() && HullConfig.batchColliderUpdates() && h.collidersDisabled;
-        boolean rigid = phase7() && HullConfig.skipBlockColliderWhileMoving()
-                && (h.simplifiedHullCollider || h.mode == HullMode.CHEAP);
-        if (!soft && !rigid) return false;
+        if (h == null || !h.collidersDisabled) return false;
         h.pendingColliderBlocks.add(BlockPos.asLong(gx, gy, gz));
         HullProfiler.COLLIDER_UPDATES_DEFERRED.incrementAndGet();
-        if (rigid) HullProfiler.BLOCK_COLLIDER_SKIPS.incrementAndGet();
         return true;
     }
 
@@ -415,88 +397,6 @@ public final class ShipHullManager {
         for (ShipHull h : ships.values()) if (h.mode == HullMode.PARKED) wake(h, why, t);
     }
 
-
-    // ---------------------------------------------------------------- Phase 7
-
-    private void updatePhase7Colliders(ShipHull hull, long gameTime) {
-        if (!HullConfig.simplifiedHullColliders()) return;
-        if (hull.subLevel() == null || hull.subLevel().isRemoved()) return;
-        boolean wantSimple = !hull.piloted
-                && hull.mode != HullMode.REBUILDING
-                && hull.mode != HullMode.PARKED
-                && !playerNear(hull, HullConfig.simplifiedRadius())
-                && hull.hullValid;
-        if (hull.mode == HullMode.CHEAP && hull.collidersDisabled) {
-            if (hull.simplifiedHullCollider) hull.simplifiedHullCollider = false;
-            return;
-        }
-        if (wantSimple && hull.mode == HullMode.FULL && !hull.simplifiedHullCollider) {
-            applyHullAabbCollider(hull);
-        } else if (!wantSimple && hull.simplifiedHullCollider) {
-            restoreHullAabbCollider(hull);
-        }
-    }
-
-    private void applyHullAabbCollider(ShipHull hull) {
-        try {
-            long scene = Rapier3D.getSceneHandle(level);
-            int id = Rapier3D.getID(hull.subLevel());
-            int minX = hull.minX, minY = hull.minY, minZ = hull.minZ;
-            int maxX = hull.maxX + 1, maxY = hull.maxY + 1, maxZ = hull.maxZ + 1;
-            Rapier3DInvoker.ash$setLocalBounds(scene, id, minX, minY, minZ, maxX, maxY, maxZ);
-            hull.simplifiedHullCollider = true;
-            hull.massCached = true;
-            HullProfiler.HULL_AABB_APPLIES.incrementAndGet();
-        } catch (Throwable t) {
-            LOGGER.warn("[shiphull] hull-AABB collider failed for {}: {}", hull.id, t.toString());
-        }
-    }
-
-    private void restoreHullAabbCollider(ShipHull hull) {
-        try {
-            SubLevelPhysicsSystem phys = SubLevelPhysicsSystem.get(level);
-            if (phys != null && phys.getPipeline() != null) {
-                PhysicsPipeline pipe = phys.getPipeline();
-                pipe.onStatsChanged(hull.subLevel());
-                replayDeferredColliders(hull, pipe);
-                INTERNAL = true;
-                try { pipe.wakeUp(hull.subLevel()); } catch (Throwable ignored) {} finally { INTERNAL = false; }
-            }
-            hull.simplifiedHullCollider = false;
-            hull.massCached = false;
-            HullProfiler.HULL_AABB_RESTORES.incrementAndGet();
-        } catch (Throwable t) {
-            LOGGER.warn("[shiphull] hull-AABB restore failed for {}: {}", hull.id, t.toString());
-        }
-    }
-
-    private void throttleNetwork(ShipHull hull, long gameTime) {
-        if (hull.piloted || hull.mode == HullMode.REBUILDING) return;
-        if (playerNear(hull, HullConfig.simplifiedRadius())) return;
-        ServerSubLevel sub = hull.subLevel();
-        if (sub == null) return;
-        int period = HullConfig.networkPeriodTicks();
-        boolean pulse = (gameTime - hull.lastNetworkPulseTick) >= period;
-        if (pulse) {
-            hull.lastNetworkPulseTick = gameTime;
-            try { sub.setLastNetworkedStopped(false); } catch (Throwable ignored) {}
-        } else {
-            try {
-                sub.setLastNetworkedStopped(true);
-                HullProfiler.NETWORK_THROTTLES.incrementAndGet();
-            } catch (Throwable ignored) {}
-        }
-    }
-
-    public String phase7Status() {
-        int simple = 0, mass = 0;
-        for (ShipHull h : ships.values()) {
-            if (h.simplifiedHullCollider) simple++;
-            if (h.massCached) mass++;
-        }
-        return String.format("phase7=%s simplifiedHull=%d massCached=%d", phase7(), simple, mass);
-    }
-
     public String phase6Status() {
         int parked = 0, pending = 0, grounded = 0;
         for (ShipHull h : ships.values()) {
@@ -580,9 +480,9 @@ public final class ShipHullManager {
     /** Empty Rapier local bounds so the body contributes no voxel colliders (still in the scene). */
     private void softSleepColliders(ShipHull hull) {
         try {
-            long scene = Rapier3D.getSceneHandle(level);
+            int scene = Rapier3D.getID(level);
             int id = Rapier3D.getID(hull.subLevel());
-            // min > max => empty AABB / no collider volume
+            // Empty AABB: max < min disables the voxel collider contribution.
             Rapier3DInvoker.ash$setLocalBounds(scene, id, 0, 0, 0, -1, -1, -1);
             hull.collidersDisabled = true;
             HullProfiler.COLLIDER_DISABLES.incrementAndGet();
@@ -643,15 +543,8 @@ public final class ShipHullManager {
             updateMode(hull, gameTime);
             hull.blockChangesThisTick = 0;
 
-            if (globallyEnabled() && phase7()) updatePhase7Colliders(hull, gameTime);
-            if (globallyEnabled() && phase7() && HullConfig.throttleNetwork()) throttleNetwork(hull, gameTime);
-
             if (globallyEnabled() && hull.mode == HullMode.CHEAP) {
                 int period = HullConfig.cheapPeriodTicks();
-                if (phase7() && HullConfig.distantCheapSlowdown() && !playerNear(hull, HullConfig.distantRadius())) {
-                    period = Math.max(period, HullConfig.distantCheapPeriodTicks());
-                    HullProfiler.DISTANT_CHEAP_STEPS.incrementAndGet();
-                }
                 // Phase 4: step on game-time phase so parented factories (FactoryCadence) align to the same tick
                 if (gameTime % period == ShipCadence.phaseOf(hull.id, period)) {
                     boolean collision = CheapIntegrator.step(hull, this, 0.05 * period);
@@ -908,8 +801,8 @@ public final class ShipHullManager {
             if (h.piloted) piloted++;
             voxels += h.voxels.size();
         }
-        return String.format("ships=%d cheap=%d parked=%d full=%d rebuilding=%d piloted=%d voxels=%d enabled=%s softSleep=%s bridge=%s demotesSuppressed=%d | %s | %s | %s",
+        return String.format("ships=%d cheap=%d parked=%d full=%d rebuilding=%d piloted=%d voxels=%d enabled=%s softSleep=%s bridge=%s demotesSuppressed=%d | %s | %s",
                 ships.size(), cheap, parked, full, rebuild, piloted, voxels,
-                globallyEnabled(), cheapSoftSleepEnabled(), ShipCadence.factoryBridgeActive(), demotesSuppressed, phase6Status(), phase7Status(), HullProfiler.summary());
+                globallyEnabled(), cheapSoftSleepEnabled(), ShipCadence.factoryBridgeActive(), demotesSuppressed, phase6Status(), HullProfiler.summary());
     }
 }

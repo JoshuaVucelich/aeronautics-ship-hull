@@ -21,11 +21,3 @@ Phase 4 emitter: `ShipCadence` (+ FactoryCadence reflection bridge).
   (AABB + lookahead), contact chain from a waking neighbour. Sable CoM teleports are adopted, not waking.
 - Not done (needs natives): removing Rapier bodies (`remove()` panics, loses constraints/voxels);
   simplified/merged collider shapes (Rapier voxel collider is native, per-blockstate).
-
-**Phase 7 (1.0.0-phase7):** in-motion cost cuts (`/shiphull phase7 off|on`).
-- Simplified hull AABB Rapier collider (setLocalBounds to voxel AABB) for unpiloted FULL ships outside simplifiedRadius
-- Cached mass (skip updateMergedMassData) while simplified
-- Distant CHEAP integrator slowdown
-- Throttled Sable network pose sync for far unpiloted ships
-- Skip/defer per-block collider updates while simplified/CHEAP rigid motion
-- Does NOT remove Rapier bodies; piloted / near-player / REBUILDING keep full voxels
