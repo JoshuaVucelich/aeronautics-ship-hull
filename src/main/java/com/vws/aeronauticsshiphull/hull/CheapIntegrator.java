@@ -65,6 +65,22 @@ public final class CheapIntegrator {
         return false;
     }
 
+    /** Same lookahead as {@link #step} without integrating: would this hull promote straight back to FULL? */
+    public static boolean wouldCollide(ShipHull hull, ShipHullManager manager) {
+        ServerSubLevel sub = hull.subLevel();
+        if (sub == null || sub.isRemoved()) return false;
+        double dt = 0.05 * HullConfig.cheapPeriodTicks();
+        AABB world = hull.worldHullAABB().inflate(HullConfig.collisionLookahead());
+        Vector3d look = new Vector3d(hull.linearVel).mul(Math.max(dt, 0.1));
+        world = world.move(look.x, look.y, look.z);
+        if (aabbHitsSolid(hull.level, world)) return true;
+        for (ShipHull other : manager.all()) {
+            if (other == hull || !other.hullValid) continue;
+            if (world.intersects(other.worldHullAABB().inflate(1.0))) return true;
+        }
+        return false;
+    }
+
     private static void advanceRoute(ShipHull hull) {
         if (hull.route.isEmpty()) {
             hull.routeTarget.set(Double.NaN, Double.NaN, Double.NaN);

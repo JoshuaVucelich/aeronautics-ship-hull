@@ -189,7 +189,8 @@ public final class ShipHullManager {
 
             if (globallyEnabled() && hull.mode == HullMode.CHEAP) {
                 int period = HullConfig.cheapPeriodTicks();
-                if (tickCounter % period == (hull.id.hashCode() & 0x7fffffff) % period) {
+                // Phase 4: step on game-time phase so parented factories (FactoryCadence) align to the same tick
+                if (gameTime % period == ShipCadence.phaseOf(hull.id, period)) {
                     boolean collision = CheapIntegrator.step(hull, this, 0.05 * period);
                     HullProfiler.CHEAP_STEPS.incrementAndGet();
                     if (collision) {
@@ -295,8 +296,17 @@ public final class ShipHullManager {
         }
     }
 
+    public long demotesSuppressed;
+
     private void demote(ShipHull hull, long gameTime) {
         if (hull.mode == HullMode.CHEAP) return;
+        // Phase 4: don't announce CHEAP if the first hull step would promote straight back
+        // (ship parked on / next to terrain). Prevents FULL<->CHEAP event flapping every quiet period.
+        if (CheapIntegrator.wouldCollide(hull, this)) {
+            hull.quietTicks = 0;
+            demotesSuppressed++;
+            return;
+        }
         hull.setMode(HullMode.CHEAP, gameTime);
         HullProfiler.MODE_DEMOTIONS.incrementAndGet();
         // Actual pipeline.remove happens next physics tick in divertCheapFromRapier
@@ -414,8 +424,8 @@ public final class ShipHullManager {
             if (h.piloted) piloted++;
             voxels += h.voxels.size();
         }
-        return String.format("ships=%d cheap=%d full=%d rebuilding=%d piloted=%d voxels=%d enabled=%s bridge=%s | %s",
+        return String.format("ships=%d cheap=%d full=%d rebuilding=%d piloted=%d voxels=%d enabled=%s bridge=%s demotesSuppressed=%d | %s",
                 ships.size(), cheap, full, rebuild, piloted, voxels,
-                globallyEnabled(), ShipCadence.factoryBridgeActive(), HullProfiler.summary());
+                globallyEnabled(), ShipCadence.factoryBridgeActive(), demotesSuppressed, HullProfiler.summary());
     }
 }

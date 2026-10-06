@@ -89,6 +89,14 @@ public final class ShipHullCommand {
                                                         .then(Commands.argument("lz", DoubleArgumentType.doubleArg())
                                                                 .executes(ShipHullCommand::nest)))))))
                 .then(Commands.literal("sync").executes(ShipHullCommand::sync))
+                .then(Commands.literal("cadence").executes(ShipHullCommand::cadence))
+                .then(Commands.literal("assemble")
+                        .then(Commands.argument("from", BlockPosArgument.blockPos())
+                                .then(Commands.argument("to", BlockPosArgument.blockPos())
+                                        .executes(ShipHullCommand::assemble))))
+                .then(Commands.literal("where")
+                        .then(Commands.argument("pos", BlockPosArgument.blockPos())
+                                .executes(ShipHullCommand::where)))
         );
     }
 
@@ -303,6 +311,60 @@ public final class ShipHullCommand {
             c.getSource().sendFailure(Component.literal("sync failed: " + t));
             return 0;
         }
+    }
+
+    private static int cadence(CommandContext<CommandSourceStack> c) {
+        c.getSource().sendSuccess(() -> Component.literal("cadence " + ShipCadence.bridgeInfo()), false);
+        for (String e : ShipCadence.recent()) c.getSource().sendSuccess(() -> Component.literal("  " + e), false);
+        return 1;
+    }
+
+    /** Which ship (if any) owns a block position - the same lookup factory graphs use. */
+    private static int where(CommandContext<CommandSourceStack> c) {
+        BlockPos pos = BlockPosArgument.getBlockPos(c, "pos");
+        Object ship = com.vws.aeronauticsshiphull.api.ShipLocator.locate(c.getSource().getLevel(), pos.asLong());
+        c.getSource().sendSuccess(() -> Component.literal(pos.toShortString() + " -> " + (ship == null ? "ground" : "ship " + ship)), false);
+        return ship == null ? 0 : 1;
+    }
+
+    /**
+     * Test helper: assemble every non-air block in a box (e.g. a Create belt rig on an iron deck)
+     * into one Sable sub-level, then print where the box's min corner landed in the plot.
+     */
+    private static int assemble(CommandContext<CommandSourceStack> c) {
+        ServerLevel level = c.getSource().getLevel();
+        BlockPos a = BlockPosArgument.getBlockPos(c, "from");
+        BlockPos b = BlockPosArgument.getBlockPos(c, "to");
+        BlockPos min = new BlockPos(Math.min(a.getX(), b.getX()), Math.min(a.getY(), b.getY()), Math.min(a.getZ(), b.getZ()));
+        BlockPos max = new BlockPos(Math.max(a.getX(), b.getX()), Math.max(a.getY(), b.getY()), Math.max(a.getZ(), b.getZ()));
+        List<BlockPos> blocks = new ArrayList<>();
+        for (BlockPos p : BlockPos.betweenClosed(min, max)) {
+            if (!level.getBlockState(p).isAir()) blocks.add(p.immutable());
+        }
+        if (blocks.isEmpty() || blocks.size() > 4096) {
+            c.getSource().sendFailure(Component.literal("need 1..4096 blocks, got " + blocks.size()));
+            return 0;
+        }
+        ServerSubLevel sub;
+        try {
+            sub = SubLevelAssemblyHelper.assembleBlocks(level, min, blocks, BoundingBox3i.from(blocks));
+        } catch (Throwable t) {
+            c.getSource().sendFailure(Component.literal("assemble failed: " + t));
+            return 0;
+        }
+        if (sub == null) {
+            c.getSource().sendFailure(Component.literal("assemble returned null"));
+            return 0;
+        }
+        ShipHullManager m = ShipHullManager.get(level);
+        m.onSubLevelAdded(sub);
+        ShipHull h = m.get(sub);
+        if (h != null) h.rebuildFromPlot();
+        var bb = sub.getPlot().getBoundingBox();
+        String plotInfo = bb == null ? "?" : String.format("plot bb [%d,%d,%d]->[%d,%d,%d]", bb.minX(), bb.minY(), bb.minZ(), bb.maxX(), bb.maxY(), bb.maxZ());
+        c.getSource().sendSuccess(() -> Component.literal("assembled ship " + sub.getUniqueId() + " blocks=" + blocks.size()
+                + " voxels=" + (h == null ? "?" : h.voxels.size()) + " " + plotInfo + " worldMin=" + min.toShortString()), true);
+        return 1;
     }
 
     /**

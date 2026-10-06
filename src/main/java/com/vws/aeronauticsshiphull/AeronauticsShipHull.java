@@ -44,8 +44,9 @@ public class AeronauticsShipHull {
     }
 
     private void commonSetup(FMLCommonSetupEvent event) {
-        LOGGER.info("{} phase-3 ship hull loaded (Aeronautics 1.3.2 / Sable 2.0.5 mixins; FactoryCadence bridge={})",
-                MOD_ID, ShipCadence.factoryBridgeActive());
+        ShipCadence.registerFactoryLocator();
+        LOGGER.info("{} phase-4 ship hull loaded (Aeronautics 1.3.2 / Sable 2.0.5 mixins; FactoryCadence {})",
+                MOD_ID, ShipCadence.bridgeInfo());
     }
 
     private void onServerStarting(ServerStartingEvent event) {
@@ -54,6 +55,7 @@ public class AeronauticsShipHull {
 
     private void onServerStopping(ServerStoppingEvent event) {
         ShipHullManager.clearAll();
+        ShipCadence.reset();
     }
 
     private void onRegisterCommands(RegisterCommandsEvent event) {
