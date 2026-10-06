@@ -26,6 +26,17 @@ public final class HullConfig {
     private static final ModConfigSpec.BooleanValue BATCH_COLLIDER_UPDATES;
     private static final ModConfigSpec.IntValue WAKE_BLOCK_BURST;
 
+    // Phase 7 — in-motion cost
+    private static final ModConfigSpec.BooleanValue PHASE7_ENABLED;
+    private static final ModConfigSpec.BooleanValue SIMPLIFIED_HULL_COLLIDERS;
+    private static final ModConfigSpec.BooleanValue CACHE_MASS;
+    private static final ModConfigSpec.BooleanValue SKIP_BLOCK_COLLIDER_WHILE_MOVING;
+    private static final ModConfigSpec.BooleanValue DISTANT_CHEAP_SLOWDOWN;
+    private static final ModConfigSpec.IntValue DISTANT_CHEAP_PERIOD;
+    private static final ModConfigSpec.BooleanValue THROTTLE_NETWORK;
+    private static final ModConfigSpec.IntValue NETWORK_PERIOD_TICKS;
+    private static final ModConfigSpec.DoubleValue SIMPLIFIED_RADIUS;
+
     static {
         ModConfigSpec.Builder b = new ModConfigSpec.Builder();
         b.push("ship_hull");
@@ -73,6 +84,28 @@ public final class HullConfig {
         WAKE_BLOCK_BURST = b.comment("Wake a parked ship if this many of its blocks change in one tick (explosion-like)")
                 .defineInRange("wakeBlockBurst", 8, 1, 4096);
         b.pop();
+
+        b.push("phase7");
+        PHASE7_ENABLED = b.comment("Master switch for Phase 7 in-motion cuts (A/B: /shiphull phase7 off|on)")
+                .define("enabled", true);
+        SIMPLIFIED_HULL_COLLIDERS = b.comment("Unpiloted ships farther than simplifiedRadius use one AABB Rapier collider (setLocalBounds to hull) "
+                + "instead of per-block voxels. Restored on pilot / near player / rebuild.")
+                .define("simplifiedHullColliders", true);
+        SIMPLIFIED_RADIUS = b.comment("Within this radius of a player, keep full voxel colliders")
+                .defineInRange("simplifiedRadius", 48.0, 0.0, 512.0);
+        CACHE_MASS = b.comment("Skip Sable updateMergedMassData for unpiloted CHEAP/simplified ships (mass frozen until wake/rebuild)")
+                .define("cacheMass", true);
+        SKIP_BLOCK_COLLIDER_WHILE_MOVING = b.comment("While simplified/CHEAP soft-sleep, defer per-block Rapier collider updates (rigid hull)")
+                .define("skipBlockColliderWhileMoving", true);
+        DISTANT_CHEAP_SLOWDOWN = b.comment("Distant unpiloted CHEAP ships integrate less often (interpolation via teleport each sync still applies)")
+                .define("distantCheapSlowdown", true);
+        DISTANT_CHEAP_PERIOD = b.comment("CHEAP period ticks when no player within distantRadius (higher = fewer integrator steps)")
+                .defineInRange("distantCheapPeriodTicks", 4, 1, 20);
+        THROTTLE_NETWORK = b.comment("Mark far unpiloted ships as network-stopped most ticks (Sable lastNetworkedStopped) to cut pose sync")
+                .define("throttleNetwork", true);
+        NETWORK_PERIOD_TICKS = b.comment("Send a real network pose every N ticks for throttled ships")
+                .defineInRange("networkPeriodTicks", 10, 1, 200);
+        b.pop();
         b.pop();
         SPEC = b.build();
     }
@@ -97,6 +130,16 @@ public final class HullConfig {
     public static boolean skipDormantSubstepWork() { return SKIP_DORMANT_SUBSTEP_WORK.get(); }
     public static boolean batchColliderUpdates() { return BATCH_COLLIDER_UPDATES.get(); }
     public static int wakeBlockBurst() { return WAKE_BLOCK_BURST.get(); }
+
+    public static boolean phase7() { return PHASE7_ENABLED.get(); }
+    public static boolean simplifiedHullColliders() { return SIMPLIFIED_HULL_COLLIDERS.get(); }
+    public static double simplifiedRadius() { return SIMPLIFIED_RADIUS.get(); }
+    public static boolean cacheMass() { return CACHE_MASS.get(); }
+    public static boolean skipBlockColliderWhileMoving() { return SKIP_BLOCK_COLLIDER_WHILE_MOVING.get(); }
+    public static boolean distantCheapSlowdown() { return DISTANT_CHEAP_SLOWDOWN.get(); }
+    public static int distantCheapPeriodTicks() { return DISTANT_CHEAP_PERIOD.get(); }
+    public static boolean throttleNetwork() { return THROTTLE_NETWORK.get(); }
+    public static int networkPeriodTicks() { return NETWORK_PERIOD_TICKS.get(); }
 
     private HullConfig() {}
 }

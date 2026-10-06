@@ -48,6 +48,10 @@ public final class ShipHull {
     public boolean inRapier = true;
     /** Phase 5: CHEAP soft-sleep emptied Rapier local bounds (colliders off). */
     public boolean collidersDisabled = false;
+    /** Phase 7: Rapier local bounds replaced with a single hull AABB. */
+    public boolean simplifiedHullCollider = false;
+    public boolean massCached = false;
+    public long lastNetworkPulseTick;
     public boolean enabled = true;
     // Phase 6
     /** Consecutive ticks at rest (speed below parkMaxSpeed). */
