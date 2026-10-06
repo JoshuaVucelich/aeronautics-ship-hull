@@ -39,28 +39,6 @@ run/
 repo/
 !**/src/**/repo/
 
-# --- Added for Cursor Origin repo (no build output, jars, worlds, logs, or secrets) ---
-build/
-.gradle/
-run/
-.run/
-out/
-*.jar
-!gradle/wrapper/gradle-wrapper.jar
-.DS_Store
-crash-reports/
-logs/
-*.log
-world/
-*-world/
-*-world-base/
-phase*-world/
-.env
-.env.*
-*.pem
-*.key
-*.p12
-local.properties
-.claude/
-.idea/
+### Local backups ###
 src.phase4-before/
+src.phase5-before/

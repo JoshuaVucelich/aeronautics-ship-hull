@@ -49,6 +49,21 @@ public final class ShipHull {
     /** Phase 5: CHEAP soft-sleep emptied Rapier local bounds (colliders off). */
     public boolean collidersDisabled = false;
     public boolean enabled = true;
+    // Phase 6
+    /** Consecutive ticks at rest (speed below parkMaxSpeed). */
+    public int stillTicks;
+    /** Set from pipeline hooks (impulse/velocity on a parked body); handled in endTick. */
+    public volatile boolean wakeRequested;
+    public String lastWakeReason = "";
+    /** Block changes on this ship during the current tick (explosion-burst wake). */
+    public int blockChangesThisTick;
+    /** Global plot positions whose Rapier voxel collider update was deferred while colliders were off. */
+    public final LongSet pendingColliderBlocks = new LongOpenHashSet();
+    /** Frozen pose while PARKED (ships stay put). */
+    public final Vector3d parkedPos = new Vector3d();
+    public final Quaterniond parkedRot = new Quaterniond();
+    /** Parked while resting on terrain/another ship: colliders stay on so Rapier keeps the body asleep. */
+    public boolean parkedGrounded;
 
     /** Local-space axis-aligned hull (block coords). */
     public int minX, minY, minZ, maxX, maxY, maxZ;

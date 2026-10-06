@@ -1,6 +1,6 @@
 # Aeronautics Ship Hull
 
-Phase 3 NeoForge mod for Minecraft **1.21.1** — server-side ship hull physics over Sable/Aeronautics.
+Phase 6 (1.0.0-phase6) NeoForge mod for Minecraft **1.21.1** — server-side ship hull physics over Sable/Aeronautics.
 
 - Mod id: `aeronautics_ship_hull`
 - License: CC0-1.0
@@ -14,9 +14,11 @@ Phase 3 NeoForge mod for Minecraft **1.21.1** — server-side ship hull physics 
 - Explosion deletes voxels, rebuilds hull, splits connectivity (no per-block ticking)
 - Bearing/crane: `/shiphull nest` parent←child local offset
 - Phase 4 emitter: `ShipCadence` (+ optional reflection bridge into `FactoryCadence`)
+- Phase 5: Rapier soft-sleep (colliders off) for CHEAP ships
+- Phase 6: PARKED mode + Sable step gating (see PHASES.md)
 
 ## Commands
-`/shiphull status|enable|disable|list|profile|sync|spawn|rebuild|mode|inspect|lookup|explode|route|nest`
+`/shiphull status|enable|disable|list|profile|sync|spawn|rebuild|mode|inspect|lookup|explode|route|nest|phase6 [on|off]|items <uuid>`
 
 ## Build
 ```bash

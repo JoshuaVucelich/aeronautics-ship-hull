@@ -51,6 +51,17 @@ public final class ShipHullManager {
     private boolean globallyEnabled = true;
     /** null = use config; Phase 5 A/B override for cheapSoftSleep. */
     public static Boolean softSleepOverride = null;
+    /** Phase 6 A/B switch (null/true = on). Off reproduces Phase 5 behaviour in the same jar. */
+    public static Boolean phase6Override = null;
+    /** True while this mod itself calls into the pipeline (suppresses wake hooks). Server thread only. */
+    public static boolean INTERNAL = false;
+    /** True while replaying deferred collider updates (bypasses the deferral hook). */
+    public static boolean REPLAYING = false;
+
+    private boolean idleNext;
+    private boolean reducedNext;
+    private int idleRun;
+    private boolean stepRanSinceSync = true;
 
     private ShipHullManager(ServerLevel level) {
         this.level = level;
@@ -123,7 +134,277 @@ public final class ShipHullManager {
             hull = get(sub);
         }
         if (hull == null) return;
+        hull.blockChangesThisTick++;
         hull.onBlockChange(pos, oldSt, newSt);
+    }
+
+    // ---------------------------------------------------------------- Phase 6
+
+    public static boolean phase6() {
+        return phase6Override == null || phase6Override;
+    }
+
+    /** CHEAP/PARKED ship whose substep work (begin/mass merge/pose readback) Sable may skip. */
+    public boolean skipDormantWork(ServerSubLevel sub) {
+        if (!phase6() || !globallyEnabled() || !HullConfig.skipDormantSubstepWork()) return false;
+        ShipHull h = ships.get(sub.getUniqueId());
+        return h != null && h.enabled && h.mode.dormant();
+    }
+
+    /** Called at the head of Sable's substep loop: skip it entirely this tick? */
+    public boolean shouldSkipStep(SubLevelPhysicsSystem sys) {
+        if (!idleNext) return false;
+        // Live re-check: a ship assembled/woken this tick must simulate.
+        for (ShipHull h : ships.values()) {
+            if (h.mode.usesRapier() || h.wakeRequested) return false;
+        }
+        if (sys.getArbitraryObjects().iterator().hasNext()) return false;
+        return true;
+    }
+
+    public boolean reducedSubsteps() {
+        return reducedNext;
+    }
+
+    public void noteStepRan() {
+        stepRanSinceSync = true;
+    }
+
+    /** Pipeline hook: something outside this mod pushed/moved a parked body. */
+    public void requestWake(ServerSubLevel sub, String why) {
+        if (INTERNAL) return;
+        ShipHull h = ships.get(sub.getUniqueId());
+        if (h != null && h.mode == HullMode.PARKED && !h.wakeRequested) {
+            h.wakeRequested = true;
+            h.lastWakeReason = why;
+        }
+    }
+
+    /** Pipeline hook: external teleport of a parked body becomes its new parked pose. */
+    public void adoptParkedPose(ServerSubLevel sub, org.joml.Vector3dc pos, org.joml.Quaterniondc rot) {
+        ShipHull h = ships.get(sub.getUniqueId());
+        if (h != null && h.mode == HullMode.PARKED) {
+            h.parkedPos.set(pos);
+            h.parkedRot.set(rot);
+        }
+    }
+
+    /** Defer a voxel collider update for a ship whose colliders are off. Returns true if deferred. */
+    public boolean deferColliderUpdate(ServerSubLevel sub, int gx, int gy, int gz) {
+        if (REPLAYING || !phase6() || !HullConfig.batchColliderUpdates()) return false;
+        ShipHull h = ships.get(sub.getUniqueId());
+        if (h == null || !h.collidersDisabled) return false;
+        h.pendingColliderBlocks.add(BlockPos.asLong(gx, gy, gz));
+        HullProfiler.COLLIDER_UPDATES_DEFERRED.incrementAndGet();
+        return true;
+    }
+
+    private void replayDeferredColliders(ShipHull hull, PhysicsPipeline pipe) {
+        if (hull.pendingColliderBlocks.isEmpty()) return;
+        long[] keys = hull.pendingColliderBlocks.toLongArray();
+        hull.pendingColliderBlocks.clear();
+        REPLAYING = true;
+        try {
+            BlockPos.MutableBlockPos p = new BlockPos.MutableBlockPos();
+            for (long k : keys) {
+                p.set(k);
+                var chunk = level.getChunkSource().getChunkNow(p.getX() >> 4, p.getZ() >> 4);
+                if (chunk == null) continue;
+                int idx = level.getSectionIndex(p.getY());
+                if (idx < 0 || idx >= chunk.getSectionsCount()) continue;
+                BlockState st = level.getBlockState(p);
+                pipe.handleBlockChange(net.minecraft.core.SectionPos.of(p), chunk.getSection(idx),
+                        p.getX() & 15, p.getY() & 15, p.getZ() & 15, st, st);
+                HullProfiler.COLLIDER_UPDATES_REPLAYED.incrementAndGet();
+            }
+        } catch (Throwable t) {
+            LOGGER.warn("[shiphull] collider replay failed for {}: {}", hull.id, t.toString());
+        } finally {
+            REPLAYING = false;
+        }
+    }
+
+    private boolean playerNear(ShipHull hull, double radius) {
+        if (radius <= 0) return false;
+        AABB box = hull.worldHullAABB().inflate(radius);
+        for (ServerPlayer p : level.players()) {
+            if (p.isSpectator()) continue;
+            if (box.contains(p.getX(), p.getY(), p.getZ())) return true;
+        }
+        return false;
+    }
+
+    private boolean isStill(ShipHull hull) {
+        double max = HullConfig.parkMaxSpeed();
+        if (hull.mode == HullMode.CHEAP) {
+            if (!Double.isNaN(hull.routeTarget.x)) return false;
+            return hull.linearVel.length() <= max && hull.angularVel.length() <= max / 4.0;
+        }
+        ServerSubLevel sub = hull.subLevel();
+        return sub.latestLinearVelocity.length() <= max && sub.latestAngularVelocity.length() <= max / 4.0;
+    }
+
+    private double speedOf(ShipHull h) {
+        return h.mode == HullMode.CHEAP ? h.linearVel.length() : h.subLevel().latestLinearVelocity.length();
+    }
+
+    /** Touching non-parked neighbours must also be ready to park, so a ship resting on another never loses its support. */
+    private boolean neighboursReady(ShipHull hull) {
+        AABB me = hull.worldHullAABB().inflate(1.0);
+        for (ShipHull other : ships.values()) {
+            if (other == hull || other.mode == HullMode.PARKED || !other.hullValid || other.subLevel() == null) continue;
+            if (!me.intersects(other.worldHullAABB())) continue;
+            if (other.piloted || other.stillTicks < HullConfig.parkStillTicks() - 1) return false;
+        }
+        return true;
+    }
+
+    private void park(ShipHull hull, long gameTime) {
+        ServerSubLevel sub = hull.subLevel();
+        Pose3d pose = sub.logicalPose();
+        hull.parkedPos.set(pose.position());
+        hull.parkedRot.set(pose.orientation());
+        hull.linearVel.zero();
+        hull.angularVel.zero();
+        sub.latestLinearVelocity.zero();
+        sub.latestAngularVelocity.zero();
+        // Grounded (resting on terrain / a ship): keep colliders so Rapier keeps the body asleep (near-free),
+        // no pinning needed. Airborne: colliders off + pin, since gravity would otherwise drop the body.
+        hull.parkedGrounded = CheapIntegrator.wouldCollide(hull, this);
+        hull.setMode(HullMode.PARKED, gameTime);
+        hull.wakeRequested = false;
+        hull.stillTicks = 0;
+        SubLevelPhysicsSystem phys = SubLevelPhysicsSystem.get(level);
+        if (phys != null && !hull.parkedGrounded) {
+            PhysicsPipeline pipe = phys.getPipeline();
+            if (!hull.collidersDisabled) softSleepColliders(hull);
+            pinParked(hull, pipe);
+        }
+        HullProfiler.PARKS.incrementAndGet();
+        LOGGER.debug("[shiphull] parked {}", hull.id);
+    }
+
+    private final Pose3d driftPose = new Pose3d();
+
+    /** Grounded parked body is normally asleep; if something nudged it in Rapier, put it back. */
+    private void checkGroundedDrift(ShipHull hull, PhysicsPipeline pipe) {
+        try {
+            pipe.readPose(hull.subLevel(), driftPose);
+            double d = driftPose.position().distance(hull.parkedPos);
+            double a = Math.abs(driftPose.orientation().dot(hull.parkedRot));
+            if (d > 0.01 || a < 0.99999) {
+                pinParked(hull, pipe);
+                HullProfiler.PARKED_DRIFT_FIXES.incrementAndGet();
+            }
+        } catch (Throwable t) {
+            LOGGER.debug("[shiphull] drift check {}: {}", hull.id, t.toString());
+        }
+    }
+
+    /** Hold a parked ship exactly where it parked (Rapier body may have drifted under gravity). */
+    private void pinParked(ShipHull hull, PhysicsPipeline pipe) {
+        ServerSubLevel sub = hull.subLevel();
+        Pose3d pose = sub.logicalPose();
+        pose.position().set(hull.parkedPos);
+        pose.orientation().set(hull.parkedRot);
+        INTERNAL = true;
+        try {
+            pipe.teleport(sub, hull.parkedPos, hull.parkedRot);
+            pipe.resetVelocity(sub);
+        } catch (Throwable t) {
+            LOGGER.debug("[shiphull] pin {}: {}", hull.id, t.toString());
+        } finally {
+            INTERNAL = false;
+        }
+    }
+
+    private void wake(ShipHull hull, String why, long gameTime) {
+        hull.lastWakeReason = why;
+        hull.wakeRequested = false;
+        hull.stillTicks = 0;
+        hull.quietTicks = 0;
+        promote(hull, HullMode.FULL, gameTime);
+        HullProfiler.WAKES.incrementAndGet();
+        LOGGER.debug("[shiphull] woke {} ({})", hull.id, why);
+        // Touching parked ships wake too (support / contact must be live before anything moves).
+        AABB me = hull.worldHullAABB().inflate(1.0);
+        for (ShipHull other : ships.values()) {
+            if (other != hull && other.mode == HullMode.PARKED && other.hullValid && other.subLevel() != null
+                    && me.intersects(other.worldHullAABB())) {
+                wake(other, "contact:" + hull.id, gameTime);
+            }
+        }
+    }
+
+    /** Wake checks for parked ships. Returns true if woken. */
+    private boolean updateWake(ShipHull hull, long gameTime) {
+        if (hull.mode != HullMode.PARKED) return false;
+        String why = null;
+        if (hull.wakeRequested) why = "impulse:" + hull.lastWakeReason;
+        else if (hull.blockChangesThisTick >= HullConfig.wakeBlockBurst()) why = "blockBurst=" + hull.blockChangesThisTick;
+        else if (hull.piloted) why = "piloted";
+        else if (playerNear(hull, HullConfig.wakeRadius())) why = "playerNear";
+        else {
+            AABB me = hull.worldHullAABB();
+            for (ShipHull other : ships.values()) {
+                if (other == hull || other.mode == HullMode.PARKED || !other.hullValid || other.subLevel() == null) continue;
+                double speed = speedOf(other);
+                // A resting neighbour is not a threat (prevents park/wake flapping for stacked/adjacent ships).
+                boolean active = speed > HullConfig.parkMaxSpeed() || other.piloted || other.mode == HullMode.REBUILDING
+                        || (other.mode == HullMode.CHEAP && !Double.isNaN(other.routeTarget.x));
+                if (!active) continue;
+                AABB o = other.worldHullAABB().inflate(HullConfig.collisionLookahead() + speed);
+                if (o.intersects(me)) { why = "shipNear:" + other.id; break; }
+            }
+        }
+        if (why == null) return false;
+        wake(hull, why, gameTime);
+        return true;
+    }
+
+    private void computeSceneFlags() {
+        idleNext = false;
+        reducedNext = false;
+        if (!phase6() || !globallyEnabled()) { idleRun = 0; return; }
+        boolean anyRapier = false, anyNear = false;
+        double r = HullConfig.distantRadius();
+        for (ShipHull h : ships.values()) {
+            if (!h.enabled || h.subLevel() == null || h.subLevel().isRemoved()) continue;
+            if (h.mode.usesRapier()) {
+                anyRapier = true;
+                if (h.piloted || h.mode == HullMode.REBUILDING || playerNear(h, r)) anyNear = true;
+            }
+        }
+        if (!anyRapier && HullConfig.idleSceneSkip()) {
+            idleRun++;
+            idleNext = idleRun % HullConfig.idleFullStepEvery() != 0;
+        } else {
+            idleRun = 0;
+        }
+        reducedNext = anyRapier && !anyNear && HullConfig.distantSubsteps();
+    }
+
+    public void parkNow(ShipHull hull, long gameTime) {
+        if (hull.mode != HullMode.PARKED) park(hull, gameTime);
+    }
+
+    public void wakeNow(ShipHull hull, String why, long gameTime) {
+        if (hull.mode == HullMode.PARKED) wake(hull, why, gameTime);
+    }
+
+    public void wakeAllParked(String why) {
+        long t = level.getGameTime();
+        for (ShipHull h : ships.values()) if (h.mode == HullMode.PARKED) wake(h, why, t);
+    }
+
+    public String phase6Status() {
+        int parked = 0, pending = 0, grounded = 0;
+        for (ShipHull h : ships.values()) {
+            if (h.mode == HullMode.PARKED) { parked++; if (h.parkedGrounded) grounded++; }
+            pending += h.pendingColliderBlocks.size();
+        }
+        return String.format("phase6=%s parked=%d (grounded=%d airborne=%d) idleNext=%s reducedNext=%s pendingCollider=%d",
+                phase6(), parked, grounded, parked - grounded, idleNext, reducedNext, pending);
     }
 
     /**
@@ -150,7 +431,15 @@ public final class ShipHullManager {
             if (!hull.enabled || hull.subLevel() == null || hull.subLevel().isRemoved()) continue;
             // Always keep inRapier=true while the sub-level exists — never remove.
             hull.inRapier = true;
-            if (hull.mode == HullMode.CHEAP) {
+            if (hull.mode == HullMode.PARKED) {
+                // Body only moves if a real Rapier step ran since last sync (idle skip => nothing to undo).
+                if (stepRanSinceSync) {
+                    if (!hull.parkedGrounded) pinParked(hull, pipe);
+                    else if ((tickCounter + (hull.id.hashCode() & 15)) % 20 == 0) checkGroundedDrift(hull, pipe);
+                }
+                HullProfiler.RAPIER_BODIES_SKIPPED.incrementAndGet();
+            } else if (hull.mode == HullMode.CHEAP) {
+                INTERNAL = true;
                 try {
                     if (cheapSoftSleepEnabled() && !hull.collidersDisabled) {
                         softSleepColliders(hull);
@@ -161,6 +450,8 @@ public final class ShipHullManager {
                     HullProfiler.RAPIER_BODIES_SKIPPED.incrementAndGet();
                 } catch (Throwable t) {
                     LOGGER.debug("[shiphull] cheap sync {}: {}", hull.id, t.toString());
+                } finally {
+                    INTERNAL = false;
                 }
             } else if (hull.collidersDisabled) {
                 restoreColliders(hull, pipe);
@@ -181,7 +472,7 @@ public final class ShipHullManager {
             PhysicsPipeline pipe = phys.getPipeline();
             if (pipe == null) return;
             for (ShipHull hull : ships.values()) {
-                if (hull.collidersDisabled) restoreColliders(hull, pipe);
+                if (hull.collidersDisabled && hull.mode != HullMode.PARKED) restoreColliders(hull, pipe);
             }
         }
     }
@@ -210,8 +501,10 @@ public final class ShipHullManager {
                 pipe.onStatsChanged(hull.subLevel());
             }
             hull.collidersDisabled = false;
+            replayDeferredColliders(hull, pipe);
             HullProfiler.COLLIDER_RESTORES.incrementAndGet();
-            try { pipe.wakeUp(hull.subLevel()); } catch (Throwable ignored) {}
+            INTERNAL = true;
+            try { pipe.wakeUp(hull.subLevel()); } catch (Throwable ignored) {} finally { INTERNAL = false; }
             LOGGER.debug("[shiphull] restored colliders for {}", hull.id);
         } catch (Throwable t) {
             LOGGER.warn("[shiphull] collider restore failed for {}: {}", hull.id, t.toString());
@@ -246,7 +539,9 @@ public final class ShipHullManager {
         for (ShipHull hull : ships.values()) {
             if (!hull.enabled || hull.subLevel() == null || hull.subLevel().isRemoved()) continue;
             updatePiloted(hull);
+            if (phase6() && globallyEnabled()) updateWake(hull, gameTime);
             updateMode(hull, gameTime);
+            hull.blockChangesThisTick = 0;
 
             if (globallyEnabled() && hull.mode == HullMode.CHEAP) {
                 int period = HullConfig.cheapPeriodTicks();
@@ -268,6 +563,8 @@ public final class ShipHullManager {
                 applyNestedTransforms(hull);
             }
         }
+        computeSceneFlags();
+        stepRanSinceSync = false;
     }
 
     private void syncFromContainer() {
@@ -331,7 +628,16 @@ public final class ShipHullManager {
         if (hull.piloted && HullConfig.pilotedUsesRapier()) {
             if (hull.mode != HullMode.FULL) promote(hull, HullMode.FULL, gameTime);
             hull.quietTicks = 0;
+            hull.stillTicks = 0;
             return;
+        }
+        if (hull.mode == HullMode.PARKED) return; // woken only via updateWake
+        if (phase6() && HullConfig.parkEnabled()) {
+            if (isStill(hull)) hull.stillTicks++; else hull.stillTicks = 0;
+            if (hull.stillTicks >= HullConfig.parkStillTicks() && !playerNear(hull, HullConfig.wakeRadius()) && neighboursReady(hull)) {
+                park(hull, gameTime);
+                return;
+            }
         }
         // Unpiloted: demote to CHEAP after quiet period
         if (hull.mode == HullMode.FULL) {
@@ -344,6 +650,11 @@ public final class ShipHullManager {
 
     public void promote(ShipHull hull, HullMode mode, long gameTime) {
         HullMode prev = hull.mode;
+        if (prev == HullMode.PARKED) {
+            SubLevelPhysicsSystem phys = SubLevelPhysicsSystem.get(level);
+            if (phys != null) pinParked(hull, phys.getPipeline()); // re-enter Rapier exactly where it parked, zero velocity
+            hull.wakeRequested = false;
+        }
         hull.setMode(mode, gameTime);
         if (mode == HullMode.REBUILDING) {
             hull.rebuildUntilTick = gameTime + HullConfig.rebuildWindowTicks();
@@ -356,7 +667,7 @@ public final class ShipHullManager {
             SubLevelPhysicsSystem phys = SubLevelPhysicsSystem.get(level);
             if (phys != null) restoreColliders(hull, phys.getPipeline());
         }
-        if (prev == HullMode.CHEAP && mode.usesRapier()) {
+        if (prev.dormant() && mode.usesRapier()) {
             HullProfiler.MODE_PROMOTIONS.incrementAndGet();
         }
     }
@@ -479,18 +790,19 @@ public final class ShipHullManager {
     }
 
     public String statusLine() {
-        int cheap = 0, full = 0, rebuild = 0, piloted = 0, voxels = 0;
+        int cheap = 0, full = 0, rebuild = 0, piloted = 0, voxels = 0, parked = 0;
         for (ShipHull h : ships.values()) {
             switch (h.mode) {
                 case CHEAP -> cheap++;
                 case FULL -> full++;
                 case REBUILDING -> rebuild++;
+                case PARKED -> parked++;
             }
             if (h.piloted) piloted++;
             voxels += h.voxels.size();
         }
-        return String.format("ships=%d cheap=%d full=%d rebuilding=%d piloted=%d voxels=%d enabled=%s softSleep=%s bridge=%s demotesSuppressed=%d | %s",
-                ships.size(), cheap, full, rebuild, piloted, voxels,
-                globallyEnabled(), cheapSoftSleepEnabled(), ShipCadence.factoryBridgeActive(), demotesSuppressed, HullProfiler.summary());
+        return String.format("ships=%d cheap=%d parked=%d full=%d rebuilding=%d piloted=%d voxels=%d enabled=%s softSleep=%s bridge=%s demotesSuppressed=%d | %s | %s",
+                ships.size(), cheap, parked, full, rebuild, piloted, voxels,
+                globallyEnabled(), cheapSoftSleepEnabled(), ShipCadence.factoryBridgeActive(), demotesSuppressed, phase6Status(), HullProfiler.summary());
     }
 }

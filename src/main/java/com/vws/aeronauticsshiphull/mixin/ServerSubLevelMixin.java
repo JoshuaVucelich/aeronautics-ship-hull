@@ -14,7 +14,7 @@ import dev.ryanhcode.sable.sublevel.ServerSubLevel;
 import dev.ryanhcode.sable.sublevel.system.SubLevelPhysicsSystem;
 
 /**
- * CHEAP ships skip force application into Rapier. Pose is overwritten by CheapIntegrator
+ * CHEAP and PARKED ships skip force application into Rapier. Pose is overwritten by CheapIntegrator
  * + teleport in endTick. Pilot never triggers FloatingBlockController from our side.
  */
 @Mixin(ServerSubLevel.class)
@@ -24,7 +24,7 @@ public abstract class ServerSubLevelMixin {
         ShipHullManager mgr = ShipHullManager.getOrNull(self.getLevel());
         if (mgr == null || !mgr.globallyEnabled()) return false;
         ShipHull hull = mgr.get(self);
-        return hull != null && hull.enabled && hull.mode == HullMode.CHEAP;
+        return hull != null && hull.enabled && hull.mode.dormant();
     }
 
     @Inject(method = "prePhysicsTick", at = @At("HEAD"), cancellable = true)

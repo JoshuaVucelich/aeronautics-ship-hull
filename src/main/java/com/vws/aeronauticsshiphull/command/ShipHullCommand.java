@@ -51,10 +51,16 @@ public final class ShipHullCommand {
                             c.getSource().sendSuccess(() -> Component.literal("softSleep=" + ShipHullManager.cheapSoftSleepEnabled()), false);
                             return 1;
                         }))
+                .then(Commands.literal("phase6")
+                        .then(Commands.literal("on").executes(c -> setPhase6(c, true)))
+                        .then(Commands.literal("off").executes(c -> setPhase6(c, false)))
+                        .executes(c -> { String l = mgr(c).phase6Status(); c.getSource().sendSuccess(() -> Component.literal(l), false); return 1; }))
                 .then(Commands.literal("profile")
                         .executes(ShipHullCommand::profile)
                         .then(Commands.literal("reset").executes(c -> { HullProfiler.reset(); c.getSource().sendSuccess(() -> Component.literal("profile reset"), false); return 1; })))
                 .then(Commands.literal("list").executes(ShipHullCommand::list))
+                .then(Commands.literal("items")
+                        .then(Commands.argument("uuid", StringArgumentType.string()).executes(ShipHullCommand::items)))
                 .then(Commands.literal("rebuild")
                         .then(Commands.argument("uuid", StringArgumentType.string()).executes(ShipHullCommand::rebuild)))
                 .then(Commands.literal("mode")
@@ -123,6 +129,13 @@ public final class ShipHullCommand {
         return 1;
     }
 
+    private static int setPhase6(CommandContext<CommandSourceStack> c, boolean on) {
+        ShipHullManager.phase6Override = on;
+        if (!on) mgr(c).wakeAllParked("phase6-off");
+        c.getSource().sendSuccess(() -> Component.literal("phase6=" + on + " (park / idle-step skip / distant substeps / dormant substep skip / collider batching)"), true);
+        return 1;
+    }
+
     private static int setEnabled(CommandContext<CommandSourceStack> c, boolean on) {
         mgr(c).setGloballyEnabled(on);
         c.getSource().sendSuccess(() -> Component.literal("shiphull " + (on ? "ENABLED" : "disabled")), true);
@@ -141,12 +154,34 @@ public final class ShipHullCommand {
             return 1;
         }
         for (ShipHull h : m.all()) {
-            String line = String.format("%s mode=%s piloted=%s rapierSolve=%s voxels=%d interactive=%d cheap=%d rapierSteps=%d nested=%d",
+            var pp = h.subLevel() != null ? h.subLevel().logicalPose().position() : null;
+            String line = String.format("%s mode=%s piloted=%s rapierSolve=%s voxels=%d interactive=%d cheap=%d rapierSteps=%d nested=%d still=%d wake=%s pos=%s",
                     h.id, h.mode, h.piloted, h.mode.usesRapier(), h.voxels.size(), h.interactive.size(),
-                    h.cheapSteps, h.rapierSteps, h.nested.size());
+                    h.cheapSteps, h.rapierSteps, h.nested.size(), h.stillTicks, h.lastWakeReason,
+                    pp == null ? "-" : String.format("%.4f,%.4f,%.4f", pp.x, pp.y, pp.z));
             c.getSource().sendSuccess(() -> Component.literal(line), false);
         }
         return m.all().size();
+    }
+
+    /** Phase 6 parity: total item count in container block entities on the ship (plot space). */
+    private static int items(CommandContext<CommandSourceStack> c) {
+        ShipHull h = requireHull(c, "uuid");
+        if (h == null) return 0;
+        var level = c.getSource().getLevel();
+        long total = 0; int containers = 0;
+        net.minecraft.core.BlockPos.MutableBlockPos p = new net.minecraft.core.BlockPos.MutableBlockPos();
+        for (long k : h.voxels) {
+            p.set(k);
+            var be = level.getBlockEntity(p);
+            if (be instanceof net.minecraft.world.Container ct) {
+                containers++;
+                for (int i = 0; i < ct.getContainerSize(); i++) total += ct.getItem(i).getCount();
+            }
+        }
+        final long t = total; final int n = containers;
+        c.getSource().sendSuccess(() -> Component.literal("items ship=" + h.id + " containers=" + n + " total=" + t), false);
+        return (int) Math.min(Integer.MAX_VALUE, total);
     }
 
     private static ShipHull requireHull(CommandContext<CommandSourceStack> c, String arg) {
@@ -176,11 +211,13 @@ public final class ShipHullCommand {
         HullMode mode;
         try { mode = HullMode.valueOf(m); }
         catch (Exception e) {
-            c.getSource().sendFailure(Component.literal("mode must be CHEAP|FULL|REBUILDING"));
+            c.getSource().sendFailure(Component.literal("mode must be CHEAP|PARKED|FULL|REBUILDING"));
             return 0;
         }
         long t = c.getSource().getLevel().getGameTime();
-        if (mode.usesRapier()) mgr(c).promote(h, mode, t);
+        if (mode == HullMode.PARKED) mgr(c).parkNow(h, t);
+        else if (h.mode == HullMode.PARKED && mode.usesRapier()) mgr(c).wakeNow(h, "command", t);
+        else if (mode.usesRapier()) mgr(c).promote(h, mode, t);
         else h.setMode(mode, t);
         c.getSource().sendSuccess(() -> Component.literal("mode=" + h.mode + " cadence=" + ShipCadence.get(h.id)), false);
         return 1;

@@ -13,6 +13,18 @@ public final class HullConfig {
     private static final ModConfigSpec.BooleanValue PILOTED_USES_RAPIER;
     private static final ModConfigSpec.BooleanValue PROFILE;
     private static final ModConfigSpec.BooleanValue CHEAP_SOFT_SLEEP;
+    // Phase 6
+    private static final ModConfigSpec.BooleanValue PARK_ENABLED;
+    private static final ModConfigSpec.IntValue PARK_STILL_TICKS;
+    private static final ModConfigSpec.DoubleValue PARK_MAX_SPEED;
+    private static final ModConfigSpec.DoubleValue WAKE_RADIUS;
+    private static final ModConfigSpec.BooleanValue IDLE_SCENE_SKIP;
+    private static final ModConfigSpec.IntValue IDLE_FULL_STEP_EVERY;
+    private static final ModConfigSpec.BooleanValue DISTANT_SUBSTEPS;
+    private static final ModConfigSpec.DoubleValue DISTANT_RADIUS;
+    private static final ModConfigSpec.BooleanValue SKIP_DORMANT_SUBSTEP_WORK;
+    private static final ModConfigSpec.BooleanValue BATCH_COLLIDER_UPDATES;
+    private static final ModConfigSpec.IntValue WAKE_BLOCK_BURST;
 
     static {
         ModConfigSpec.Builder b = new ModConfigSpec.Builder();
@@ -36,6 +48,31 @@ public final class HullConfig {
                 + "(remove panics natives). Body stays in the scene; CheapIntegrator owns pose. "
                 + "Restored via onStatsChanged on FULL/REBUILDING.")
                 .define("cheapSoftSleep", true);
+        b.push("phase6");
+        PARK_ENABLED = b.comment("Park unpiloted ships that have been at rest (on terrain or hovering) with no player near: "
+                + "pose frozen, colliders off, skipped by Sable's substep loop. Wakes on approach, impulse, nearby moving ship, block burst.")
+                .define("parkEnabled", true);
+        PARK_STILL_TICKS = b.comment("Consecutive still ticks before a FULL/CHEAP ship parks")
+                .defineInRange("parkStillTicks", 60, 1, 6000);
+        PARK_MAX_SPEED = b.comment("Max linear speed (blocks/s) still counted as 'at rest'; angular uses speed/4 rad/s")
+                .defineInRange("parkMaxSpeed", 0.05, 0.0, 5.0);
+        WAKE_RADIUS = b.comment("A player within this many blocks of a parked/unpiloted hull wakes it to FULL")
+                .defineInRange("wakeRadius", 16.0, 0.0, 256.0);
+        IDLE_SCENE_SKIP = b.comment("Skip Sable's whole physics substep loop (incl. Rapier step) when every ship is CHEAP/PARKED and no boxes/ropes exist")
+                .define("idleSceneSkip", true);
+        IDLE_FULL_STEP_EVERY = b.comment("While the scene is idle, still run one real physics tick every N ticks (housekeeping/safety)")
+                .defineInRange("idleFullStepEvery", 40, 1, 1200);
+        DISTANT_SUBSTEPS = b.comment("Run 1 substep instead of Sable's configured count when no Rapier ship is piloted or near a player")
+                .define("distantSubsteps", true);
+        DISTANT_RADIUS = b.comment("'Near a player' radius for distantSubsteps (blocks from hull)")
+                .defineInRange("distantRadius", 64.0, 0.0, 1024.0);
+        SKIP_DORMANT_SUBSTEP_WORK = b.comment("Skip prePhysicsTickBegin / mass merge / pose readback for CHEAP+PARKED ships inside Sable's substep loop")
+                .define("skipDormantSubstepWork", true);
+        BATCH_COLLIDER_UPDATES = b.comment("Defer Rapier voxel collider updates for ships with colliders off; replay de-duplicated on wake")
+                .define("batchColliderUpdates", true);
+        WAKE_BLOCK_BURST = b.comment("Wake a parked ship if this many of its blocks change in one tick (explosion-like)")
+                .defineInRange("wakeBlockBurst", 8, 1, 4096);
+        b.pop();
         b.pop();
         SPEC = b.build();
     }
@@ -49,6 +86,17 @@ public final class HullConfig {
     public static boolean pilotedUsesRapier() { return PILOTED_USES_RAPIER.get(); }
     public static boolean profile() { return PROFILE.get(); }
     public static boolean cheapSoftSleep() { return CHEAP_SOFT_SLEEP.get(); }
+    public static boolean parkEnabled() { return PARK_ENABLED.get(); }
+    public static int parkStillTicks() { return PARK_STILL_TICKS.get(); }
+    public static double parkMaxSpeed() { return PARK_MAX_SPEED.get(); }
+    public static double wakeRadius() { return WAKE_RADIUS.get(); }
+    public static boolean idleSceneSkip() { return IDLE_SCENE_SKIP.get(); }
+    public static int idleFullStepEvery() { return IDLE_FULL_STEP_EVERY.get(); }
+    public static boolean distantSubsteps() { return DISTANT_SUBSTEPS.get(); }
+    public static double distantRadius() { return DISTANT_RADIUS.get(); }
+    public static boolean skipDormantSubstepWork() { return SKIP_DORMANT_SUBSTEP_WORK.get(); }
+    public static boolean batchColliderUpdates() { return BATCH_COLLIDER_UPDATES.get(); }
+    public static int wakeBlockBurst() { return WAKE_BLOCK_BURST.get(); }
 
     private HullConfig() {}
 }

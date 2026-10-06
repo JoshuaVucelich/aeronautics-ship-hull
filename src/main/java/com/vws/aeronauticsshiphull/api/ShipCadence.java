@@ -97,7 +97,7 @@ public final class ShipCadence {
 
     public static void setFromHull(UUID shipId, HullMode hull) {
         set(shipId, switch (hull) {
-            case CHEAP -> Mode.CHEAP;
+            case CHEAP, PARKED -> Mode.CHEAP;
             case REBUILDING -> Mode.REBUILDING;
             case FULL -> Mode.FULL;
         });
