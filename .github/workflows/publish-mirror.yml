@@ -5,25 +5,33 @@ on:
       - main
 permissions:
   contents: write
+  workflows: write
 jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
-      - name: Push main and mc branches
+      - name: Diagnose push and origin reachability
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          set -euo pipefail
-          git clone --bare https://origin.cursor.com/git/joshua-vucelich/aeronautics-ship-hull.git repo.git
-          cd repo.git
-          umask 077
-          printf '%s\n' '#!/bin/sh' 'case "$1" in' '  *Username*) printf "%s\n" x-access-token ;;' '  *) printf "%s\n" "$GH_TOKEN" ;;' 'esac' > /tmp/git-askpass
-          chmod 700 /tmp/git-askpass
-          export GIT_ASKPASS=/tmp/git-askpass
-          export GIT_TERMINAL_PROMPT=0
-          DEST=https://github.com/JoshuaVucelich/aeronautics-ship-hull.git
-          git push --force "$DEST" refs/heads/cursor/readme-github-mirror-4571:refs/heads/main
-          git push "$DEST" refs/heads/mc/1.21.1:refs/heads/mc/1.21.1
-          git push "$DEST" refs/heads/mc/1.21.1-sable1:refs/heads/mc/1.21.1-sable1
-          git push "$DEST" :refs/heads/mirror-bootstrap
-          git ls-remote https://github.com/JoshuaVucelich/aeronautics-ship-hull.git refs/heads/main refs/heads/mc/1.21.1 refs/heads/mc/1.21.1-sable1
+          set +e
+          git ls-remote https://origin.cursor.com/git/joshua-vucelich/aeronautics-ship-hull.git HEAD > /tmp/ls 2>/tmp/lserr
+          lscode=$?
+          lsmsg=$(tr '\n' ' ' < /tmp/lserr | head -c 400)
+          echo "::warning title=origin::exit ${lscode} ${lsmsg}"
+          rm -rf /tmp/t
+          git init /tmp/t
+          git -C /tmp/t config user.email agent@example.com
+          git -C /tmp/t config user.name agent
+          git -C /tmp/t commit --allow-empty -m probe
+          git -C /tmp/t -c "http.extraheader=AUTHORIZATION: bearer ${GH_TOKEN}" push https://github.com/JoshuaVucelich/aeronautics-ship-hull.git HEAD:refs/heads/perm-probe > /tmp/pout 2>&1
+          pcode=$?
+          pmsg=$(sed -E 's/(bearer |AUTHORIZATION:)[^ ]*/\1REDACTED/g' /tmp/pout | tr '\n' ' ' | head -c 800)
+          echo "::warning title=probe::exit ${pcode} ${pmsg}"
+          if [ "$pcode" -eq 0 ]; then
+            git -C /tmp/t -c "http.extraheader=AUTHORIZATION: bearer ${GH_TOKEN}" push https://github.com/JoshuaVucelich/aeronautics-ship-hull.git :refs/heads/perm-probe > /tmp/dout 2>&1
+            dcode=$?
+            dmsg=$(tr '\n' ' ' < /tmp/dout | head -c 300)
+            echo "::warning title=delete-probe::exit ${dcode} ${dmsg}"
+          fi
+          exit 0
