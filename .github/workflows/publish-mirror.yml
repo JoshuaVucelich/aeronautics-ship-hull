@@ -1,0 +1,30 @@
+name: Publish mirror
+on:
+  push:
+    branches:
+      - mirror-bootstrap
+permissions:
+  contents: write
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Push main and mc branches
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          git clone --bare https://origin.cursor.com/git/joshua-vucelich/aeronautics-ship-hull.git repo.git
+          cd repo.git
+          umask 077
+          printf '%s\n' '#!/bin/sh' 'case "$1" in' '  *Username*) printf "%s\n" x-access-token ;;' '  *) printf "%s\n" "$GH_TOKEN" ;;' 'esac' > /tmp/git-askpass
+          chmod 700 /tmp/git-askpass
+          export GIT_ASKPASS=/tmp/git-askpass
+          export GIT_TERMINAL_PROMPT=0
+          DEST=https://github.com/JoshuaVucelich/aeronautics-ship-hull.git
+          git push "$DEST" refs/heads/cursor/readme-github-mirror-4571:refs/heads/main
+          git push "$DEST" refs/heads/mc/1.21.1:refs/heads/mc/1.21.1
+          git push "$DEST" refs/heads/mc/1.21.1-sable1:refs/heads/mc/1.21.1-sable1
+          gh api -X PATCH repos/JoshuaVucelich/aeronautics-ship-hull -f default_branch=main
+          git push "$DEST" :refs/heads/mirror-bootstrap
+          GIT_ASKPASS= GIT_TERMINAL_PROMPT=0 git ls-remote https://github.com/JoshuaVucelich/aeronautics-ship-hull.git refs/heads/main refs/heads/mc/1.21.1 refs/heads/mc/1.21.1-sable1
