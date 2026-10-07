@@ -9,28 +9,25 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
-      - name: Diagnose push and origin reachability
+      - name: Probe basic auth push
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set +e
-          git ls-remote https://origin.cursor.com/git/joshua-vucelich/aeronautics-ship-hull.git HEAD > /tmp/ls 2>/tmp/lserr
-          lscode=$?
-          lsmsg=$(tr '\n' ' ' < /tmp/lserr | head -c 400)
-          echo "::warning title=origin::exit ${lscode} ${lsmsg}"
           rm -rf /tmp/t
           git init /tmp/t
           git -C /tmp/t config user.email agent@example.com
           git -C /tmp/t config user.name agent
           git -C /tmp/t commit --allow-empty -m probe
-          git -C /tmp/t -c "http.extraheader=AUTHORIZATION: bearer ${GH_TOKEN}" push https://github.com/JoshuaVucelich/aeronautics-ship-hull.git HEAD:refs/heads/perm-probe > /tmp/pout 2>&1
+          AUTH=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
+          git -C /tmp/t -c "http.extraheader=Authorization: Basic ${AUTH}" push https://github.com/JoshuaVucelich/aeronautics-ship-hull.git HEAD:refs/heads/perm-probe > /tmp/pout 2>&1
           pcode=$?
-          pmsg=$(sed -E 's/(bearer |AUTHORIZATION:)[^ ]*/\1REDACTED/g' /tmp/pout | tr '\n' ' ' | head -c 800)
+          pmsg=$(sed -E 's/(Basic |bearer |token )[^ ]*/\1REDACTED/g' /tmp/pout | tr '\n' ' ' | head -c 800)
           echo "::warning title=probe::exit ${pcode} ${pmsg}"
           if [ "$pcode" -eq 0 ]; then
-            git -C /tmp/t -c "http.extraheader=AUTHORIZATION: bearer ${GH_TOKEN}" push https://github.com/JoshuaVucelich/aeronautics-ship-hull.git :refs/heads/perm-probe > /tmp/dout 2>&1
+            git -C /tmp/t -c "http.extraheader=Authorization: Basic ${AUTH}" push https://github.com/JoshuaVucelich/aeronautics-ship-hull.git :refs/heads/perm-probe > /tmp/dout 2>&1
             dcode=$?
-            dmsg=$(tr '\n' ' ' < /tmp/dout | head -c 300)
+            dmsg=$(sed -E 's/(Basic |bearer |token )[^ ]*/\1REDACTED/g' /tmp/dout | tr '\n' ' ' | head -c 400)
             echo "::warning title=delete-probe::exit ${dcode} ${dmsg}"
           fi
           exit 0
