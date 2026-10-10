@@ -59,6 +59,13 @@ public final class ShipHullCommand {
                         .then(Commands.literal("on").executes(c -> setPhase7(c, true)))
                         .then(Commands.literal("off").executes(c -> setPhase7(c, false)))
                         .executes(c -> { String l = mgr(c).phase7Status(); c.getSource().sendSuccess(() -> Component.literal(l), false); return 1; }))
+                .then(Commands.literal("colliderCache")
+                        .then(Commands.literal("on").executes(c -> setColliderCache(c, true)))
+                        .then(Commands.literal("off").executes(c -> setColliderCache(c, false)))
+                        .executes(c -> {
+                            c.getSource().sendSuccess(() -> Component.literal("colliderCache=" + ShipHullManager.colliderCache()), false);
+                            return 1;
+                        }))
                 .then(Commands.literal("profile")
                         .executes(ShipHullCommand::profile)
                         .then(Commands.literal("reset").executes(c -> { HullProfiler.reset(); c.getSource().sendSuccess(() -> Component.literal("profile reset"), false); return 1; })))
@@ -137,6 +144,12 @@ public final class ShipHullCommand {
         ShipHullManager.phase6Override = on;
         if (!on) mgr(c).wakeAllParked("phase6-off");
         c.getSource().sendSuccess(() -> Component.literal("phase6=" + on + " (park / idle-step skip / distant substeps / dormant substep skip / collider batching)"), true);
+        return 1;
+    }
+
+    private static int setColliderCache(CommandContext<CommandSourceStack> c, boolean on) {
+        ShipHullManager.colliderCacheOverride = on;
+        c.getSource().sendSuccess(() -> Component.literal("colliderCache=" + on + " (incremental hull bounds / section collider replay)"), true);
         return 1;
     }
 

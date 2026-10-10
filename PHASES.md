@@ -29,3 +29,8 @@ Phase 4 emitter: `ShipCadence` (+ FactoryCadence reflection bridge).
 - Throttled Sable network pose sync for far unpiloted ships
 - Skip/defer per-block collider updates while simplified/CHEAP rigid motion
 - Does NOT remove Rapier bodies; piloted / near-player / REBUILDING keep full voxels
+
+**Collider cache (1.0.0-phase8-collider):** `/shiphull colliderCache off|on`.
+- Hull bounds update incrementally when a block is added or an interior block is removed. A full voxel scan runs only when a block on the current min/max face is removed.
+- Interactive-cell classification is cached per block state.
+- Waking a ship with at least 48 deferred collider cells replays each dirty 16³ section with one `handleChunkSectionAddition` instead of seven native `changeBlock` calls per cell.

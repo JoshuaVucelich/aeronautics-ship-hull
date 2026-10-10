@@ -37,6 +37,9 @@ public final class HullConfig {
     private static final ModConfigSpec.IntValue NETWORK_PERIOD_TICKS;
     private static final ModConfigSpec.DoubleValue SIMPLIFIED_RADIUS;
 
+    private static final ModConfigSpec.BooleanValue COLLIDER_CACHE;
+    private static final ModConfigSpec.IntValue COLLIDER_SECTION_REPLAY_AT;
+
     static {
         ModConfigSpec.Builder b = new ModConfigSpec.Builder();
         b.push("ship_hull");
@@ -106,6 +109,14 @@ public final class HullConfig {
         NETWORK_PERIOD_TICKS = b.comment("Send a real network pose every N ticks for throttled ships")
                 .defineInRange("networkPeriodTicks", 10, 1, 200);
         b.pop();
+
+        b.push("colliderCache");
+        COLLIDER_CACHE = b.comment("Incremental hull bounds, cached block classification, and section-batched collider replay")
+                .define("enabled", true);
+        COLLIDER_SECTION_REPLAY_AT = b.comment("When at least this many deferred collider cells wake at once, replay each dirty 16³ section "
+                + "with one chunk upload instead of a native changeBlock per cell")
+                .defineInRange("sectionReplayAt", 48, 1, 4096);
+        b.pop();
         b.pop();
         SPEC = b.build();
     }
@@ -140,6 +151,9 @@ public final class HullConfig {
     public static int distantCheapPeriodTicks() { return DISTANT_CHEAP_PERIOD.get(); }
     public static boolean throttleNetwork() { return THROTTLE_NETWORK.get(); }
     public static int networkPeriodTicks() { return NETWORK_PERIOD_TICKS.get(); }
+
+    public static boolean colliderCache() { return COLLIDER_CACHE.get(); }
+    public static int colliderSectionReplayAt() { return COLLIDER_SECTION_REPLAY_AT.get(); }
 
     private HullConfig() {}
 }

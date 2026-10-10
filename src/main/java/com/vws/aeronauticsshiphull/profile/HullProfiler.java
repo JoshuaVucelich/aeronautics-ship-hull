@@ -35,6 +35,10 @@ public final class HullProfiler {
     public static final AtomicLong DISTANT_CHEAP_STEPS = new AtomicLong();
     public static final AtomicLong NETWORK_THROTTLES = new AtomicLong();
     public static final AtomicLong BLOCK_COLLIDER_SKIPS = new AtomicLong();
+    // Collider cache
+    public static final AtomicLong BOUNDS_INCREMENTAL = new AtomicLong();
+    public static final AtomicLong BOUNDS_FULL_SCANS = new AtomicLong();
+    public static final AtomicLong COLLIDER_SECTION_REPLAYS = new AtomicLong();
 
     public static void reset() {
         RAPIER_STEPS.set(0);
@@ -64,6 +68,9 @@ public final class HullProfiler {
         DISTANT_CHEAP_STEPS.set(0);
         NETWORK_THROTTLES.set(0);
         BLOCK_COLLIDER_SKIPS.set(0);
+        BOUNDS_INCREMENTAL.set(0);
+        BOUNDS_FULL_SCANS.set(0);
+        COLLIDER_SECTION_REPLAYS.set(0);
     }
 
     public static String phase6Summary() {
@@ -75,7 +82,9 @@ public final class HullProfiler {
                 PARKS.get(), WAKES.get(), PARKED_DRIFT_FIXES.get(), COLLIDER_UPDATES_DEFERRED.get(), COLLIDER_UPDATES_REPLAYED.get())
                 + String.format(" | p7 aabbOn=%d aabbOff=%d massSkip=%d distantCheap=%d netThrottle=%d blockSkip=%d",
                 HULL_AABB_APPLIES.get(), HULL_AABB_RESTORES.get(), MASS_CACHE_SKIPS.get(),
-                DISTANT_CHEAP_STEPS.get(), NETWORK_THROTTLES.get(), BLOCK_COLLIDER_SKIPS.get());
+                DISTANT_CHEAP_STEPS.get(), NETWORK_THROTTLES.get(), BLOCK_COLLIDER_SKIPS.get())
+                + String.format(" | collider boundsIncr=%d boundsScan=%d sectionReplays=%d",
+                BOUNDS_INCREMENTAL.get(), BOUNDS_FULL_SCANS.get(), COLLIDER_SECTION_REPLAYS.get());
     }
 
     public static String summary() {

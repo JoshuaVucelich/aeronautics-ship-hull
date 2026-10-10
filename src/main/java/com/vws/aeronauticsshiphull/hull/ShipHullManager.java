@@ -55,6 +55,8 @@ public final class ShipHullManager {
     public static Boolean phase6Override = null;
     /** Phase 7 A/B switch (null/true = on). In-motion cuts. */
     public static Boolean phase7Override = null;
+    /** Collider-cache A/B switch (null = config). */
+    public static Boolean colliderCacheOverride = null;
     /** True while this mod itself calls into the pipeline (suppresses wake hooks). Server thread only. */
     public static boolean INTERNAL = false;
     /** True while replaying deferred collider updates (bypasses the deferral hook). */
@@ -150,6 +152,10 @@ public final class ShipHullManager {
         return (phase7Override == null || phase7Override) && HullConfig.phase7();
     }
 
+    public static boolean colliderCache() {
+        return colliderCacheOverride != null ? colliderCacheOverride : HullConfig.colliderCache();
+    }
+
     /** CHEAP/PARKED ship whose substep work (begin/mass merge/pose readback) Sable may skip.
      * Phase 7 also skips mass merge for unpiloted simplified-hull FULL ships (cached mass). */
     public boolean skipDormantWork(ServerSubLevel sub) {
@@ -223,6 +229,10 @@ public final class ShipHullManager {
         hull.pendingColliderBlocks.clear();
         REPLAYING = true;
         try {
+            if (colliderCache() && keys.length >= HullConfig.colliderSectionReplayAt()
+                    && replayDeferredSections(keys, pipe)) {
+                return;
+            }
             BlockPos.MutableBlockPos p = new BlockPos.MutableBlockPos();
             for (long k : keys) {
                 p.set(k);
@@ -240,6 +250,24 @@ public final class ShipHullManager {
         } finally {
             REPLAYING = false;
         }
+    }
+
+    /** One native chunk upload per dirty 16³ section. Returns false if nothing was uploaded. */
+    private boolean replayDeferredSections(long[] keys, PhysicsPipeline pipe) {
+        it.unimi.dsi.fastutil.longs.LongOpenHashSet sections = new it.unimi.dsi.fastutil.longs.LongOpenHashSet();
+        for (long k : keys) sections.add(net.minecraft.core.SectionPos.asLong(BlockPos.of(k)));
+        boolean any = false;
+        for (long packed : sections) {
+            net.minecraft.core.SectionPos sp = net.minecraft.core.SectionPos.of(packed);
+            var chunk = level.getChunkSource().getChunkNow(sp.x(), sp.z());
+            if (chunk == null) continue;
+            int idx = level.getSectionIndexFromSectionY(sp.y());
+            if (idx < 0 || idx >= chunk.getSectionsCount()) continue;
+            pipe.handleChunkSectionAddition(chunk.getSection(idx), sp.x(), sp.y(), sp.z(), true);
+            HullProfiler.COLLIDER_SECTION_REPLAYS.incrementAndGet();
+            any = true;
+        }
+        return any;
     }
 
     private boolean playerNear(ShipHull hull, double radius) {
