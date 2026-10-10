@@ -2,7 +2,7 @@
 
 NeoForge mod for Minecraft 1.21.1. Server-side ship hull physics for Create ships running on Aeronautics and Sable.
 
-This tree is `1.0.0-phase7`. Mod id `aeronautics_ship_hull`. License [CC0 1.0](LICENSE).
+This tree is `1.0.0-phase8-rapier`. Mod id `aeronautics_ship_hull`. License [CC0 1.0](LICENSE).
 
 Pinned versions:
 
@@ -34,6 +34,12 @@ Phase 7 is on by default. `/shiphull phase7 off` and `on` flip it in game.
 - Per-block collider updates wait while the hull is simplified or moving in CHEAP.
 - Piloted ships, ships near a player, and REBUILDING ships keep full voxel colliders.
 
+Phase 8 is on by default. `/shiphull phase8 off` and `on` flip it in game.
+
+- An unpiloted FULL ship that is not about to hit terrain or another hull coasts: `Rapier3D.step` is skipped and the ship keeps its last solved velocity. Every 4th tick is a real step, so lift, drag, and gravity still update.
+- A piloted ship, a rebuilding ship, or any ship inside the collision lookahead forces a real step for every ship that tick.
+- When a real step runs and no Rapier ship is piloted or within 64 blocks of a player, the solver uses 8 iterations instead of Sable's 18. The count goes back to 18 when someone is close.
+
 `/shiphull nest` pins a child ship to a parent ship with a local offset, for a bearing or crane. Each tick the child pose follows the parent. If the child is in Rapier, it is teleported to match. The two ships stay separate bodies.
 
 `ShipCadence` fires when a ship's mode changes (CHEAP, REBUILDING, or FULL). If `create_factory_graph` is loaded, that event is mirrored into `FactoryCadence` by reflection, and a locator is registered so a factory graph can find its ship. Either jar can be updated on its own.
@@ -53,7 +59,7 @@ Needs permission level 2.
 - `/shiphull explode <uuid> <pos> <radius>` or `explode <uuid> here <radius>`
 - `/shiphull route <uuid> add|clear|start|impulse ...`
 - `/shiphull nest <parent> <child> <lx> <ly> <lz>`
-- `/shiphull softsleep on|off`, `phase6 on|off`, `phase7 on|off`
+- `/shiphull softsleep on|off`, `phase6 on|off`, `phase7 on|off`, `phase8 on|off`
 
 ## Build
 

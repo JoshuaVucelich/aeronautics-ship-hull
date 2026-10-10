@@ -55,6 +55,8 @@ public final class ShipHullManager {
     public static Boolean phase6Override = null;
     /** Phase 7 A/B switch (null/true = on). In-motion cuts. */
     public static Boolean phase7Override = null;
+    /** Phase 8 A/B switch (null/true = on). Rapier step LOD. */
+    public static Boolean phase8Override = null;
     /** True while this mod itself calls into the pipeline (suppresses wake hooks). Server thread only. */
     public static boolean INTERNAL = false;
     /** True while replaying deferred collider updates (bypasses the deferral hook). */
@@ -64,6 +66,8 @@ public final class ShipHullManager {
     private boolean reducedNext;
     private int idleRun;
     private boolean stepRanSinceSync = true;
+    /** Set when this tick's Rapier step was replaced by coasting. Consumed in endTick. */
+    private boolean coastedThisTick;
 
     private ShipHullManager(ServerLevel level) {
         this.level = level;
@@ -150,6 +154,10 @@ public final class ShipHullManager {
         return (phase7Override == null || phase7Override) && HullConfig.phase7();
     }
 
+    public static boolean phase8() {
+        return (phase8Override == null || phase8Override) && HullConfig.phase8();
+    }
+
     /** CHEAP/PARKED ship whose substep work (begin/mass merge/pose readback) Sable may skip.
      * Phase 7 also skips mass merge for unpiloted simplified-hull FULL ships (cached mass). */
     public boolean skipDormantWork(ServerSubLevel sub) {
@@ -177,6 +185,87 @@ public final class ShipHullManager {
 
     public boolean reducedSubsteps() {
         return reducedNext;
+    }
+
+    /**
+     * Skip {@code Rapier3D.step} this tick and coast separated unpiloted FULL ships at the last
+     * solved velocity. A real step still runs every {@code coastRealStepEvery} ticks. Any piloted,
+     * rebuilding, or about-to-collide ship forces the real step for the whole scene (Rapier steps
+     * every body together).
+     */
+    public boolean shouldCoastStep() {
+        coastedThisTick = false;
+        if (!phase8() || !globallyEnabled() || !HullConfig.coastSeparated()) return false;
+        int period = HullConfig.coastRealStepEvery();
+        if (period <= 1) return false;
+        if (Math.floorMod(level.getGameTime(), period) == 0) return false;
+        boolean anyFull = false;
+        for (ShipHull h : ships.values()) {
+            if (!h.enabled || h.subLevel() == null || h.subLevel().isRemoved()) continue;
+            if (!h.mode.usesRapier()) continue;
+            if (h.mode == HullMode.REBUILDING || h.piloted || h.wakeRequested || h.blockChangesThisTick > 0) return false;
+            anyFull = true;
+            if (!coastClear(h)) return false;
+        }
+        if (!anyFull) return false;
+        coastedThisTick = true;
+        return true;
+    }
+
+    public boolean coastedThisTick() {
+        return coastedThisTick;
+    }
+
+    /** Real step, but nobody is piloting or standing near a Rapier ship: solver can run fewer iterations. */
+    public boolean distantSolverThisTick() {
+        return phase8() && globallyEnabled() && HullConfig.distantSolver() && reducedNext;
+    }
+
+    private boolean coastClear(ShipHull hull) {
+        if (playerNear(hull, HullConfig.wakeRadius())) return false;
+        ServerSubLevel sub = hull.subLevel();
+        double dt = 0.05 * HullConfig.coastRealStepEvery();
+        double vx = sub.latestLinearVelocity.x;
+        double vy = sub.latestLinearVelocity.y;
+        double vz = sub.latestLinearVelocity.z;
+        double speed = Math.sqrt(vx * vx + vy * vy + vz * vz);
+        AABB world = hull.worldHullAABB().inflate(HullConfig.collisionLookahead() + speed * dt);
+        world = world.move(vx * dt, vy * dt, vz * dt);
+        if (CheapIntegrator.aabbHitsSolid(level, world)) return false;
+        for (ShipHull other : ships.values()) {
+            if (other == hull || !other.hullValid || other.subLevel() == null) continue;
+            if (world.intersects(other.worldHullAABB().inflate(1.0))) return false;
+        }
+        return true;
+    }
+
+    /** Constant-velocity step for one skipped Rapier tick. Colliders stay; the body is teleported so the next real step starts here. */
+    private void integrateCoast(ShipHull hull) {
+        ServerSubLevel sub = hull.subLevel();
+        double dt = 0.05;
+        Pose3d pose = sub.logicalPose();
+        var v = sub.latestLinearVelocity;
+        pose.position().add(v.x * dt, v.y * dt, v.z * dt);
+        var w = sub.latestAngularVelocity;
+        if (w.lengthSquared() > 1e-12) {
+            org.joml.Quaterniond dq = new org.joml.Quaterniond().rotateXYZ(w.x * dt, w.y * dt, w.z * dt);
+            pose.orientation().mul(dq).normalize();
+        }
+        hull.linearVel.set(v);
+        hull.angularVel.set(w);
+        hull.bumpPose();
+        sub.updateBoundingBox();
+        SubLevelPhysicsSystem phys = SubLevelPhysicsSystem.get(level);
+        if (phys == null || phys.getPipeline() == null) return;
+        INTERNAL = true;
+        try {
+            phys.getPipeline().teleport(sub, pose.position(), pose.orientation());
+        } catch (Throwable t) {
+            LOGGER.debug("[shiphull] coast teleport {}: {}", hull.id, t.toString());
+        } finally {
+            INTERNAL = false;
+        }
+        HullProfiler.COAST_INTEGRATIONS.incrementAndGet();
     }
 
     public void noteStepRan() {
@@ -497,6 +586,12 @@ public final class ShipHullManager {
         return String.format("phase7=%s simplifiedHull=%d massCached=%d", phase7(), simple, mass);
     }
 
+    public String phase8Status() {
+        return String.format("phase8=%s coastedThisTick=%s coastEvery=%d distantSolver=%s solverIters=%d",
+                phase8(), coastedThisTick, HullConfig.coastRealStepEvery(),
+                HullConfig.distantSolver(), HullConfig.distantSolverIterations());
+    }
+
     public String phase6Status() {
         int parked = 0, pending = 0, grounded = 0;
         for (ShipHull h : ships.values()) {
@@ -638,6 +733,9 @@ public final class ShipHullManager {
 
         for (ShipHull hull : ships.values()) {
             if (!hull.enabled || hull.subLevel() == null || hull.subLevel().isRemoved()) continue;
+            // Rapier may have written a new pose since the cached world AABB.
+            hull.bumpPose();
+            if (coastedThisTick && hull.mode == HullMode.FULL) integrateCoast(hull);
             updatePiloted(hull);
             if (phase6() && globallyEnabled()) updateWake(hull, gameTime);
             updateMode(hull, gameTime);
@@ -672,6 +770,7 @@ public final class ShipHullManager {
         }
         computeSceneFlags();
         stepRanSinceSync = false;
+        coastedThisTick = false;
     }
 
     private void syncFromContainer() {
@@ -910,6 +1009,6 @@ public final class ShipHullManager {
         }
         return String.format("ships=%d cheap=%d parked=%d full=%d rebuilding=%d piloted=%d voxels=%d enabled=%s softSleep=%s bridge=%s demotesSuppressed=%d | %s | %s | %s",
                 ships.size(), cheap, parked, full, rebuild, piloted, voxels,
-                globallyEnabled(), cheapSoftSleepEnabled(), ShipCadence.factoryBridgeActive(), demotesSuppressed, phase6Status(), phase7Status(), HullProfiler.summary());
+                globallyEnabled(), cheapSoftSleepEnabled(), ShipCadence.factoryBridgeActive(), demotesSuppressed, phase6Status(), phase7Status(), phase8Status(), HullProfiler.summary());
     }
 }

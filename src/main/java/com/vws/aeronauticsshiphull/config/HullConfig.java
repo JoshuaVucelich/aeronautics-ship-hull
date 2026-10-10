@@ -37,6 +37,13 @@ public final class HullConfig {
     private static final ModConfigSpec.IntValue NETWORK_PERIOD_TICKS;
     private static final ModConfigSpec.DoubleValue SIMPLIFIED_RADIUS;
 
+    // Phase 8 — Rapier step LOD
+    private static final ModConfigSpec.BooleanValue PHASE8_ENABLED;
+    private static final ModConfigSpec.BooleanValue COAST_SEPARATED;
+    private static final ModConfigSpec.IntValue COAST_REAL_STEP_EVERY;
+    private static final ModConfigSpec.BooleanValue DISTANT_SOLVER;
+    private static final ModConfigSpec.IntValue DISTANT_SOLVER_ITERATIONS;
+
     static {
         ModConfigSpec.Builder b = new ModConfigSpec.Builder();
         b.push("ship_hull");
@@ -106,6 +113,22 @@ public final class HullConfig {
         NETWORK_PERIOD_TICKS = b.comment("Send a real network pose every N ticks for throttled ships")
                 .defineInRange("networkPeriodTicks", 10, 1, 200);
         b.pop();
+
+        b.push("phase8");
+        PHASE8_ENABLED = b.comment("Master switch for Phase 8 Rapier step cuts (A/B: /shiphull phase8 off|on)")
+                .define("enabled", true);
+        COAST_SEPARATED = b.comment("Unpiloted FULL ships whose lookahead is clear of terrain and other hulls skip Rapier3D.step "
+                + "and coast at the last solved velocity. A real step still runs every coastRealStepEvery ticks, and any "
+                + "piloted, rebuilding, or about-to-collide ship forces a real step for the whole scene.")
+                .define("coastSeparated", true);
+        COAST_REAL_STEP_EVERY = b.comment("Run a real Rapier step every N ticks while coasting (1 = never coast)")
+                .defineInRange("coastRealStepEvery", 4, 1, 20);
+        DISTANT_SOLVER = b.comment("When a real step still runs but no Rapier ship is piloted or near a player, "
+                + "lower solver iterations (contact generation stays). Restored when someone is close.")
+                .define("distantSolver", true);
+        DISTANT_SOLVER_ITERATIONS = b.comment("Solver iterations used by distantSolver (Sable default is 18)")
+                .defineInRange("distantSolverIterations", 8, 1, 64);
+        b.pop();
         b.pop();
         SPEC = b.build();
     }
@@ -140,6 +163,12 @@ public final class HullConfig {
     public static int distantCheapPeriodTicks() { return DISTANT_CHEAP_PERIOD.get(); }
     public static boolean throttleNetwork() { return THROTTLE_NETWORK.get(); }
     public static int networkPeriodTicks() { return NETWORK_PERIOD_TICKS.get(); }
+
+    public static boolean phase8() { return PHASE8_ENABLED.get(); }
+    public static boolean coastSeparated() { return COAST_SEPARATED.get(); }
+    public static int coastRealStepEvery() { return COAST_REAL_STEP_EVERY.get(); }
+    public static boolean distantSolver() { return DISTANT_SOLVER.get(); }
+    public static int distantSolverIterations() { return DISTANT_SOLVER_ITERATIONS.get(); }
 
     private HullConfig() {}
 }

@@ -11,4 +11,9 @@ public interface Rapier3DInvoker {
     static void ash$setLocalBounds(long scene, int bodyId, int minX, int minY, int minZ, int maxX, int maxY, int maxZ) {
         throw new AssertionError();
     }
+
+    @Invoker("configSolverIterations")
+    static void ash$configSolverIterations(int solverIterations, int pgsIterations, int stabilizationIterations) {
+        throw new AssertionError();
+    }
 }
