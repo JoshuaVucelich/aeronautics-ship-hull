@@ -5,7 +5,7 @@ Sable's chunk-map mixin forces every ship plot chunk to report `inEntityTickingR
 ## Change
 
 - On a PARKED ship with no player inside the wake radius, vanilla block entities and Sable `BlockEntitySubLevelActor.sable$tick` run every 4 ticks. The allow/skip decision is cached per chunk for the rest of the tick.
-- Non-player entities in that plot do not tick at all until a player is within the wake radius. Players are never skipped.
+- Non-player entities in that plot, and entities Sable has moved onto the ship's world pose, do not tick at all until a player is within the wake radius. Players are never skipped.
 - Moving, cheap, rebuilding, and piloted ships are unchanged.
 
 `/shiphull blockEntityTick off|on` is the A/B switch.

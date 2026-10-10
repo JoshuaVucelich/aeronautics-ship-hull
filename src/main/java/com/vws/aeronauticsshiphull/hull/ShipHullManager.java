@@ -160,6 +160,31 @@ public final class ShipHullManager {
         return playerNear(hull, radius);
     }
 
+    private final java.util.ArrayList<AABB> parkedWorldBoxes = new java.util.ArrayList<>();
+    private long parkedWorldTick = Long.MIN_VALUE;
+
+    /**
+     * True when a world-space point sits on a parked ship nobody is near.
+     * Sable moves riding entities to the ship pose, so their chunk is not the storage plot.
+     */
+    public boolean parkedUnattendedContains(double x, double y, double z) {
+        if (!blockEntityTick() || !globallyEnabled()) return false;
+        long now = level.getGameTime();
+        if (parkedWorldTick != now) {
+            parkedWorldTick = now;
+            parkedWorldBoxes.clear();
+            for (ShipHull hull : ships.values()) {
+                if (!hull.enabled || hull.mode != HullMode.PARKED || hull.subLevel() == null) continue;
+                if (playerNear(hull, HullConfig.wakeRadius())) continue;
+                parkedWorldBoxes.add(hull.worldHullAABB().inflate(2.0));
+            }
+        }
+        for (AABB box : parkedWorldBoxes) {
+            if (box.contains(x, y, z)) return true;
+        }
+        return false;
+    }
+
     /** CHEAP/PARKED ship whose substep work (begin/mass merge/pose readback) Sable may skip.
      * Phase 7 also skips mass merge for unpiloted simplified-hull FULL ships (cached mass). */
     public boolean skipDormantWork(ServerSubLevel sub) {

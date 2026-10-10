@@ -8,6 +8,7 @@ import dev.ryanhcode.sable.sublevel.plot.LevelPlot;
 import it.unimi.dsi.fastutil.longs.Long2ByteOpenHashMap;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.world.level.ChunkPos;
 
 /**
@@ -36,6 +37,13 @@ public final class ShipTickGate {
         boolean allow = decide(level, key, now, false);
         BLOCKS.put(key, allow ? (byte) 1 : (byte) 2);
         return allow;
+    }
+
+    /** Plot-chunk test, plus the ship's world box for entities Sable has moved to the pose. */
+    public static boolean skipEntity(ServerLevel level, Entity entity) {
+        if (skipEntity(level, entity.blockPosition())) return true;
+        ShipHullManager mgr = ShipHullManager.getOrNull(level);
+        return mgr != null && mgr.parkedUnattendedContains(entity.getX(), entity.getY(), entity.getZ());
     }
 
     public static boolean skipEntity(ServerLevel level, BlockPos pos) {

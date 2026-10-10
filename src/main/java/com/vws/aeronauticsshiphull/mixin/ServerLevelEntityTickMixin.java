@@ -24,7 +24,7 @@ public abstract class ServerLevelEntityTickMixin {
     private void ash$skipParkedPlotEntities(Entity entity, CallbackInfo ci) {
         if (entity instanceof Player) return;
         ServerLevel self = (ServerLevel) (Object) this;
-        if (ShipTickGate.skipEntity(self, entity.blockPosition())) {
+        if (ShipTickGate.skipEntity(self, entity)) {
             HullProfiler.ENTITY_TICK_SKIPS.incrementAndGet();
             ci.cancel();
         }
