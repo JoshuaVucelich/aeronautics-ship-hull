@@ -20,11 +20,15 @@ import dev.ryanhcode.sable.physics.impl.rapier.RapierPhysicsPipeline;
 import dev.ryanhcode.sable.physics.impl.rapier.Rapier3D;
 import com.vws.aeronauticsshiphull.mixin.accessor.Rapier3DInvoker;
 
+import it.unimi.dsi.fastutil.longs.Long2ByteOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import it.unimi.dsi.fastutil.longs.LongSet;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
@@ -35,6 +39,7 @@ import dev.ryanhcode.sable.api.sublevel.SubLevelContainer;
 import dev.ryanhcode.sable.companion.math.Pose3d;
 import dev.ryanhcode.sable.companion.math.Pose3dc;
 import dev.ryanhcode.sable.sublevel.ServerSubLevel;
+import dev.ryanhcode.sable.sublevel.plot.LevelPlot;
 import dev.ryanhcode.sable.sublevel.system.SubLevelPhysicsSystem;
 
 /**
@@ -55,6 +60,8 @@ public final class ShipHullManager {
     public static Boolean phase6Override = null;
     /** Phase 7 A/B switch (null/true = on). In-motion cuts. */
     public static Boolean phase7Override = null;
+    /** Phase 8 ship-sync A/B. null = config ship_hull.phase8.shipSync. */
+    public static Boolean shipSyncOverride = null;
     /** True while this mod itself calls into the pipeline (suppresses wake hooks). Server thread only. */
     public static boolean INTERNAL = false;
     /** True while replaying deferred collider updates (bypasses the deferral hook). */
@@ -64,6 +71,9 @@ public final class ShipHullManager {
     private boolean reducedNext;
     private int idleRun;
     private boolean stepRanSinceSync = true;
+    /** Chunk -> 1 allow, 2 skip. Cleared when the game time changes. 0 means absent. */
+    private final Long2ByteOpenHashMap entitySyncCache = new Long2ByteOpenHashMap();
+    private long entitySyncCacheTick = Long.MIN_VALUE;
 
     private ShipHullManager(ServerLevel level) {
         this.level = level;
@@ -494,7 +504,81 @@ public final class ShipHullManager {
             if (h.simplifiedHullCollider) simple++;
             if (h.massCached) mass++;
         }
-        return String.format("phase7=%s simplifiedHull=%d massCached=%d", phase7(), simple, mass);
+        return String.format("phase7=%s simplifiedHull=%d massCached=%d shipSync=%s", phase7(), simple, mass, shipSyncEnabled());
+    }
+
+    public boolean shipSyncEnabled() {
+        if (!globallyEnabled()) return false;
+        if (shipSyncOverride != null) return shipSyncOverride;
+        return HullConfig.shipSync();
+    }
+
+    /**
+     * True when this tick should withhold the pose snapshot and plot-entity deltas.
+     * Pulse ticks are spread by ship id so ten movers do not all send on the same tick.
+     * Does not write {@code lastNetworkedStopped}; the tracking mixin does that before
+     * Sable's within-tolerance branch, which is what actually skips the packet.
+     */
+    public boolean throttlePoseSend(ServerSubLevel sub) {
+        if (!shipSyncEnabled() || sub == null || sub.isRemoved()) return false;
+        ShipHull hull = ships.get(sub.getUniqueId());
+        if (hull == null || !hull.enabled) return false;
+        if (hull.piloted || hull.mode == HullMode.REBUILDING) return false;
+        if (playerNear(hull, HullConfig.simplifiedRadius())) return false;
+        int period = HullConfig.networkPeriodTicks();
+        if (period <= 1) return false;
+        int phase = ShipCadence.phaseOf(hull.id, period);
+        return Math.floorMod(level.getGameTime(), period) != phase;
+    }
+
+    /** Identity match: {@code logicalPose()} returns the sublevel's stable pose field. */
+    public ServerSubLevel sublevelForLogicalPose(Pose3d pose) {
+        if (pose == null) return null;
+        for (ShipHull h : ships.values()) {
+            ServerSubLevel sub = h.subLevel();
+            if (sub != null && sub.logicalPose() == pose) return sub;
+        }
+        return null;
+    }
+
+    /**
+     * Skip {@code ServerEntity.sendChanges} for a non-player on a throttled ship plot.
+     * Players, and anything carrying a player, keep full rate. The decision is cached per chunk for the tick.
+     */
+    public boolean throttleEntitySync(Entity entity) {
+        if (!shipSyncEnabled() || entity == null || entity instanceof Player) return false;
+        for (Entity passenger : entity.getPassengers()) {
+            if (passenger instanceof Player) return false;
+        }
+        long now = level.getGameTime();
+        if (entitySyncCacheTick != now) {
+            entitySyncCacheTick = now;
+            entitySyncCache.clear();
+        }
+        long key = entity.chunkPosition().toLong();
+        byte cached = entitySyncCache.get(key);
+        if (cached == 1) return false;
+        if (cached == 2) {
+            HullProfiler.ENTITY_SYNC_SKIPS.incrementAndGet();
+            return true;
+        }
+        boolean skip = entityChunkThrottled(entity.chunkPosition());
+        entitySyncCache.put(key, (byte) (skip ? 2 : 1));
+        if (skip) HullProfiler.ENTITY_SYNC_SKIPS.incrementAndGet();
+        return skip;
+    }
+
+    private boolean entityChunkThrottled(ChunkPos chunk) {
+        try {
+            ServerSubLevelContainer container = SubLevelContainer.getContainer(level);
+            if (container == null || !container.inBounds(chunk)) return false;
+            LevelPlot plot = container.getPlot(chunk);
+            if (plot == null) return false;
+            if (!(plot.getSubLevel() instanceof ServerSubLevel sub) || sub.isRemoved()) return false;
+            return throttlePoseSend(sub);
+        } catch (Throwable t) {
+            return false;
+        }
     }
 
     public String phase6Status() {

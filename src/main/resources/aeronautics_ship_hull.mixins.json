@@ -10,6 +10,8 @@
     "ServerLevelPlotMixin",
     "ServerSubLevelMixin",
     "SubLevelPhysicsSystemMixin",
+    "SubLevelTrackingMixin",
+    "ServerEntitySyncMixin",
     "accessor.RapierPhysicsPipelineAccessor",
     "accessor.Rapier3DInvoker"
   ],

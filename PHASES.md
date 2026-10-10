@@ -29,3 +29,15 @@ Phase 4 emitter: `ShipCadence` (+ FactoryCadence reflection bridge).
 - Throttled Sable network pose sync for far unpiloted ships
 - Skip/defer per-block collider updates while simplified/CHEAP rigid motion
 - Does NOT remove Rapier bodies; piloted / near-player / REBUILDING keep full voxels
+
+**Phase 8 ship sync (1.0.0-phase8-sync):** pose and plot-entity packets (`/shiphull shipSync off|on`).
+- `sendMovementUpdates` compares `logicalPose` to `lastNetworkedPose` and, when they differ, clears
+  `lastNetworkedStopped` and queues a MOVE. Phase 7 sets that flag in the post-tick, after tracking,
+  so a moving ship still sent every tick.
+- On non-pulse ticks the comparison is forced true and the ship is marked stopped first, so Sable
+  continues without copying `lastNetworkedPose` or enqueueing a packet. Pulse ticks (default every 10,
+  spread by ship id) run the real comparison and send the current pose and velocity.
+- `ServerEntity.sendChanges` for non-player entities in that plot uses the same period. Players, and
+  any entity carrying a player, stay at full rate. The chunk decision is cached for the tick.
+- Piloted, REBUILDING, and ships with a player inside simplifiedRadius (48) stay at full rate.
+- Start-tracking full sync and bounds packets are unchanged.

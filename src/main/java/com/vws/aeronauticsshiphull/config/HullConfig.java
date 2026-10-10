@@ -36,6 +36,8 @@ public final class HullConfig {
     private static final ModConfigSpec.BooleanValue THROTTLE_NETWORK;
     private static final ModConfigSpec.IntValue NETWORK_PERIOD_TICKS;
     private static final ModConfigSpec.DoubleValue SIMPLIFIED_RADIUS;
+    // Phase 8 — ship sync (this branch)
+    private static final ModConfigSpec.BooleanValue SHIP_SYNC;
 
     static {
         ModConfigSpec.Builder b = new ModConfigSpec.Builder();
@@ -106,6 +108,13 @@ public final class HullConfig {
         NETWORK_PERIOD_TICKS = b.comment("Send a real network pose every N ticks for throttled ships")
                 .defineInRange("networkPeriodTicks", 10, 1, 200);
         b.pop();
+
+        b.push("phase8");
+        SHIP_SYNC = b.comment("Hold Sable pose snapshots and plot-entity sync to networkPeriodTicks for unpiloted ships "
+                + "farther than simplifiedRadius. The gate runs inside sendMovementUpdates, because setting "
+                + "lastNetworkedStopped after tracking does not survive a moving pose. A/B: /shiphull shipSync off|on")
+                .define("shipSync", true);
+        b.pop();
         b.pop();
         SPEC = b.build();
     }
@@ -140,6 +149,7 @@ public final class HullConfig {
     public static int distantCheapPeriodTicks() { return DISTANT_CHEAP_PERIOD.get(); }
     public static boolean throttleNetwork() { return THROTTLE_NETWORK.get(); }
     public static int networkPeriodTicks() { return NETWORK_PERIOD_TICKS.get(); }
+    public static boolean shipSync() { return SHIP_SYNC.get(); }
 
     private HullConfig() {}
 }

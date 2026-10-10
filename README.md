@@ -2,7 +2,7 @@
 
 NeoForge mod for Minecraft 1.21.1. Server-side ship hull physics for Create ships running on Aeronautics and Sable.
 
-This tree is `1.0.0-phase7`. Mod id `aeronautics_ship_hull`. License [CC0 1.0](LICENSE).
+This tree is `1.0.0-phase8-sync`. Mod id `aeronautics_ship_hull`. License [CC0 1.0](LICENSE).
 
 Pinned versions:
 
@@ -30,7 +30,7 @@ Phase 7 is on by default. `/shiphull phase7 off` and `on` flip it in game.
 - An unpiloted FULL ship farther than 48 blocks from a player uses one AABB Rapier collider instead of per-block voxels.
 - Mass is cached while that simplified collider is on, so `updateMergedMassData` is skipped.
 - Distant CHEAP ships step every 4 ticks when nobody is within 64 blocks.
-- Unpiloted ships farther than 48 blocks send a network pose every 10 ticks.
+- Unpiloted ships farther than 48 blocks send a network pose every 10 ticks. Phase 7 only set `lastNetworkedStopped` after tracking, and Sable clears that flag when the pose has moved, so a moving ship still sent every tick. Phase 8 (`/shiphull shipSync off|on`) withholds the snapshot inside `sendMovementUpdates` and withholds `ServerEntity.sendChanges` for non-player entities on that plot, on the same period. Players, piloted ships, rebuilding ships, and ships with a player inside 48 blocks stay at full rate. A player who starts tracking still gets a full sync.
 - Per-block collider updates wait while the hull is simplified or moving in CHEAP.
 - Piloted ships, ships near a player, and REBUILDING ships keep full voxel colliders.
 
@@ -53,7 +53,7 @@ Needs permission level 2.
 - `/shiphull explode <uuid> <pos> <radius>` or `explode <uuid> here <radius>`
 - `/shiphull route <uuid> add|clear|start|impulse ...`
 - `/shiphull nest <parent> <child> <lx> <ly> <lz>`
-- `/shiphull softsleep on|off`, `phase6 on|off`, `phase7 on|off`
+- `/shiphull softsleep on|off`, `phase6 on|off`, `phase7 on|off`, `shipSync on|off`
 
 ## Build
 
@@ -63,4 +63,4 @@ Java 21.
 ./gradlew build
 ```
 
-Create, Ponder, Flywheel, and Registrate resolve from Maven. Sable 2.0.5 resolves from `maven.ryanhcode.dev`. Aeronautics 1.3.2, Simulated 1.3.2, and the Sable companion and Rapier jars are `compileOnly` files. `build.gradle` expects them under `../create-perf-libs-1.21.1/extracted/`.
+Create, Ponder, Flywheel, and Registrate resolve from Maven. Sable 2.0.5 resolves from `maven.ryanhcode.dev`. Aeronautics 1.3.2, Simulated 1.3.2, and the Sable companion and Rapier jars are `compileOnly` files. `build.gradle` expects them under `../create-perf-libs-1.21.1/extracted/`, or pass `-PperfLibsDir=` to point somewhere else.

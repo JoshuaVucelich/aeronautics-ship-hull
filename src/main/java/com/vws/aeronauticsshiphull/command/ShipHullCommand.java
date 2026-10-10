@@ -59,6 +59,15 @@ public final class ShipHullCommand {
                         .then(Commands.literal("on").executes(c -> setPhase7(c, true)))
                         .then(Commands.literal("off").executes(c -> setPhase7(c, false)))
                         .executes(c -> { String l = mgr(c).phase7Status(); c.getSource().sendSuccess(() -> Component.literal(l), false); return 1; }))
+                .then(Commands.literal("shipSync")
+                        .then(Commands.literal("on").executes(c -> setShipSync(c, true)))
+                        .then(Commands.literal("off").executes(c -> setShipSync(c, false)))
+                        .executes(c -> {
+                            c.getSource().sendSuccess(() -> Component.literal("shipSync=" + mgr(c).shipSyncEnabled()
+                                    + " poseSkips=" + HullProfiler.POSE_SEND_SKIPS.get()
+                                    + " entitySyncSkips=" + HullProfiler.ENTITY_SYNC_SKIPS.get()), false);
+                            return 1;
+                        }))
                 .then(Commands.literal("profile")
                         .executes(ShipHullCommand::profile)
                         .then(Commands.literal("reset").executes(c -> { HullProfiler.reset(); c.getSource().sendSuccess(() -> Component.literal("profile reset"), false); return 1; })))
@@ -143,6 +152,13 @@ public final class ShipHullCommand {
     private static int setPhase7(CommandContext<CommandSourceStack> c, boolean on) {
         ShipHullManager.phase7Override = on;
         c.getSource().sendSuccess(() -> Component.literal("phase7=" + on + " (hull-AABB colliders / mass cache / distant CHEAP slowdown / network throttle / skip block colliders while moving)"), true);
+        return 1;
+    }
+
+    private static int setShipSync(CommandContext<CommandSourceStack> c, boolean on) {
+        ShipHullManager.shipSyncOverride = on;
+        c.getSource().sendSuccess(() -> Component.literal("shipSync=" + on
+                + " (pose snapshots and plot-entity sync every networkPeriodTicks for far unpiloted ships)"), true);
         return 1;
     }
 
