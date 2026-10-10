@@ -59,6 +59,13 @@ public final class ShipHullCommand {
                         .then(Commands.literal("on").executes(c -> setPhase7(c, true)))
                         .then(Commands.literal("off").executes(c -> setPhase7(c, false)))
                         .executes(c -> { String l = mgr(c).phase7Status(); c.getSource().sendSuccess(() -> Component.literal(l), false); return 1; }))
+                .then(Commands.literal("blockEntityTick")
+                        .then(Commands.literal("on").executes(c -> setBlockEntityTick(c, true)))
+                        .then(Commands.literal("off").executes(c -> setBlockEntityTick(c, false)))
+                        .executes(c -> {
+                            c.getSource().sendSuccess(() -> Component.literal("blockEntityTick=" + ShipHullManager.blockEntityTick()), false);
+                            return 1;
+                        }))
                 .then(Commands.literal("profile")
                         .executes(ShipHullCommand::profile)
                         .then(Commands.literal("reset").executes(c -> { HullProfiler.reset(); c.getSource().sendSuccess(() -> Component.literal("profile reset"), false); return 1; })))
@@ -137,6 +144,12 @@ public final class ShipHullCommand {
         ShipHullManager.phase6Override = on;
         if (!on) mgr(c).wakeAllParked("phase6-off");
         c.getSource().sendSuccess(() -> Component.literal("phase6=" + on + " (park / idle-step skip / distant substeps / dormant substep skip / collider batching)"), true);
+        return 1;
+    }
+
+    private static int setBlockEntityTick(CommandContext<CommandSourceStack> c, boolean on) {
+        ShipHullManager.blockEntityTickOverride = on;
+        c.getSource().sendSuccess(() -> Component.literal("blockEntityTick=" + on + " (parked plot block entities every N ticks, entities frozen until a player is near)"), true);
         return 1;
     }
 

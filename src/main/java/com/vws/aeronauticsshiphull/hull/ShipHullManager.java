@@ -55,6 +55,8 @@ public final class ShipHullManager {
     public static Boolean phase6Override = null;
     /** Phase 7 A/B switch (null/true = on). In-motion cuts. */
     public static Boolean phase7Override = null;
+    /** Block-entity tick A/B switch (null = config). */
+    public static Boolean blockEntityTickOverride = null;
     /** True while this mod itself calls into the pipeline (suppresses wake hooks). Server thread only. */
     public static boolean INTERNAL = false;
     /** True while replaying deferred collider updates (bypasses the deferral hook). */
@@ -148,6 +150,14 @@ public final class ShipHullManager {
 
     public static boolean phase7() {
         return (phase7Override == null || phase7Override) && HullConfig.phase7();
+    }
+
+    public static boolean blockEntityTick() {
+        return blockEntityTickOverride != null ? blockEntityTickOverride : HullConfig.blockEntityTick();
+    }
+
+    public boolean isPlayerNear(ShipHull hull, double radius) {
+        return playerNear(hull, radius);
     }
 
     /** CHEAP/PARKED ship whose substep work (begin/mass merge/pose readback) Sable may skip.

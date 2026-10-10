@@ -9,9 +9,13 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 import com.llamalad7.mixinextras.injector.v2.WrapWithCondition;
+import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
+import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
 import com.vws.aeronauticsshiphull.hull.ShipHullManager;
+import com.vws.aeronauticsshiphull.hull.ShipTickGate;
 import com.vws.aeronauticsshiphull.profile.HullProfiler;
 
+import dev.ryanhcode.sable.api.block.BlockEntitySubLevelActor;
 import dev.ryanhcode.sable.api.sublevel.ServerSubLevelContainer;
 import dev.ryanhcode.sable.api.sublevel.SubLevelContainer;
 import dev.ryanhcode.sable.physics.config.PhysicsConfigData;
@@ -44,6 +48,16 @@ public abstract class SubLevelPhysicsStepMixin {
     private void ash$tickReturn(SubLevelContainer container, CallbackInfo ci) {
         HullProfiler.SABLE_TICK_NS.addAndGet(System.nanoTime() - ash$tickStart);
         HullProfiler.SABLE_TICK_CALLS.incrementAndGet();
+    }
+
+    @WrapOperation(method = "tick", at = @At(value = "INVOKE",
+            target = "Ldev/ryanhcode/sable/api/block/BlockEntitySubLevelActor;sable$tick(Ldev/ryanhcode/sable/sublevel/ServerSubLevel;)V"))
+    private void ash$actor(BlockEntitySubLevelActor actor, ServerSubLevel sub, Operation<Void> original) {
+        if (!ShipTickGate.allowActor(level, sub)) {
+            HullProfiler.ACTOR_TICK_SKIPS.incrementAndGet();
+            return;
+        }
+        original.call(actor, sub);
     }
 
     @Inject(method = "tickPipelinePhysics", at = @At("HEAD"), cancellable = true)

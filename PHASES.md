@@ -29,3 +29,7 @@ Phase 4 emitter: `ShipCadence` (+ FactoryCadence reflection bridge).
 - Throttled Sable network pose sync for far unpiloted ships
 - Skip/defer per-block collider updates while simplified/CHEAP rigid motion
 - Does NOT remove Rapier bodies; piloted / near-player / REBUILDING keep full voxels
+
+**Block-entity tick (1.0.0-phase8-blockentity):** `/shiphull blockEntityTick off|on`.
+- Sable forces ship plot chunks to stay in ticking range. On a parked ship with no player within the wake radius, block entities and Sable block-entity actors tick every 4 ticks. The decision is cached per chunk for the tick.
+- Non-player entities in that plot do not tick until a player is within the wake radius, so items stay where they are and do not despawn. Players are never skipped. Moving, cheap, and piloted ships keep a full tick.
