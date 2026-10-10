@@ -6,7 +6,7 @@ Sable's `SubLevelTrackingSystem.sendMovementUpdates` sends a MOVE snapshot whene
 
 - Inside `sendMovementUpdates` only, a far unpiloted ship on a non-pulse tick is reported as within tolerance, and marked stopped first, so Sable continues without copying `lastNetworkedPose` or enqueueing a packet.
 - Pulse ticks (default every 10, spread by ship id via `ShipCadence.phaseOf`) call the real comparison and send the current pose and velocity.
-- `ServerEntity.sendChanges` for non-player entities whose chunk is that plot uses the same period. The allow/skip decision is cached per chunk for the rest of the tick. Players, and any entity carrying a player, are never skipped.
+- `ServerEntity.sendChanges` for a non-player uses the same period when the entity sits inside that ship's world box, or when its chunk is still the storage plot. Sable moves riding entities to the ship pose, so the world box is the case that matters. The plot-chunk decision is cached for the rest of the tick. Players, and any entity carrying a player, are never skipped.
 - Piloted ships, REBUILDING ships, and ships with a player inside `simplifiedRadius` (48) stay at full rate.
 - Start-tracking full sync and bounds packets are unchanged.
 

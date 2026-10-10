@@ -74,6 +74,9 @@ public final class ShipHullManager {
     /** Chunk -> 1 allow, 2 skip. Cleared when the game time changes. 0 means absent. */
     private final Long2ByteOpenHashMap entitySyncCache = new Long2ByteOpenHashMap();
     private long entitySyncCacheTick = Long.MIN_VALUE;
+    /** World boxes of ships whose pose send is throttled this tick. Rebuilt once per tick. */
+    private final List<AABB> throttledWorldBoxes = new ArrayList<>();
+    private long throttledWorldTick = Long.MIN_VALUE;
 
     private ShipHullManager(ServerLevel level) {
         this.level = level;
@@ -542,13 +545,19 @@ public final class ShipHullManager {
     }
 
     /**
-     * Skip {@code ServerEntity.sendChanges} for a non-player on a throttled ship plot.
-     * Players, and anything carrying a player, keep full rate. The decision is cached per chunk for the tick.
+     * Skip {@code ServerEntity.sendChanges} for a non-player on a throttled ship.
+     * Sable moves entities that ride the ship to its world pose, so a plot-chunk test misses them.
+     * A position inside the throttled hull's world box is skipped, and so is a storage-plot chunk.
+     * Players, and anything carrying a player, keep full rate. The chunk decision is cached for the tick.
      */
     public boolean throttleEntitySync(Entity entity) {
         if (!shipSyncEnabled() || entity == null || entity instanceof Player) return false;
         for (Entity passenger : entity.getPassengers()) {
             if (passenger instanceof Player) return false;
+        }
+        if (insideThrottledHull(entity.getX(), entity.getY(), entity.getZ())) {
+            HullProfiler.ENTITY_SYNC_SKIPS.incrementAndGet();
+            return true;
         }
         long now = level.getGameTime();
         if (entitySyncCacheTick != now) {
@@ -566,6 +575,25 @@ public final class ShipHullManager {
         entitySyncCache.put(key, (byte) (skip ? 2 : 1));
         if (skip) HullProfiler.ENTITY_SYNC_SKIPS.incrementAndGet();
         return skip;
+    }
+
+    private boolean insideThrottledHull(double x, double y, double z) {
+        long now = level.getGameTime();
+        if (throttledWorldTick != now) {
+            throttledWorldTick = now;
+            throttledWorldBoxes.clear();
+            if (!shipSyncEnabled()) return false;
+            for (ShipHull hull : ships.values()) {
+                ServerSubLevel sub = hull.subLevel();
+                if (sub != null && throttlePoseSend(sub)) {
+                    throttledWorldBoxes.add(hull.worldHullAABB().inflate(2.0));
+                }
+            }
+        }
+        for (AABB box : throttledWorldBoxes) {
+            if (box.contains(x, y, z)) return true;
+        }
+        return false;
     }
 
     private boolean entityChunkThrottled(ChunkPos chunk) {

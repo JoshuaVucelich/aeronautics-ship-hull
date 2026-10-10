@@ -37,7 +37,8 @@ Phase 4 emitter: `ShipCadence` (+ FactoryCadence reflection bridge).
 - On non-pulse ticks the comparison is forced true and the ship is marked stopped first, so Sable
   continues without copying `lastNetworkedPose` or enqueueing a packet. Pulse ticks (default every 10,
   spread by ship id) run the real comparison and send the current pose and velocity.
-- `ServerEntity.sendChanges` for non-player entities in that plot uses the same period. Players, and
-  any entity carrying a player, stay at full rate. The chunk decision is cached for the tick.
+- `ServerEntity.sendChanges` for non-player entities inside that ship's world box, or still stored in
+  the plot chunk, uses the same period. Sable moves riding entities to the ship pose, so the world box
+  is the one that matters. Players, and any entity carrying a player, stay at full rate.
 - Piloted, REBUILDING, and ships with a player inside simplifiedRadius (48) stay at full rate.
 - Start-tracking full sync and bounds packets are unchanged.
