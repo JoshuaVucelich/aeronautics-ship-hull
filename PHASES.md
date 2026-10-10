@@ -29,3 +29,8 @@ Phase 4 emitter: `ShipCadence` (+ FactoryCadence reflection bridge).
 - Throttled Sable network pose sync for far unpiloted ships
 - Skip/defer per-block collider updates while simplified/CHEAP rigid motion
 - Does NOT remove Rapier bodies; piloted / near-player / REBUILDING keep full voxels
+
+**Contraption tick (1.0.0-phase8-contraption):** `/shiphull contraptionTick off|on`.
+- Kinematic contraptions on a PARKED ship, or on a settled CHEAP ship, skip the per-substep pose upload into Rapier.
+- Dormant ships skip the splitting heat-map walk.
+- Create contraption entities on a parked ship with no player nearby and no player passenger tick every 4 ticks. A player passenger or a player within the wake radius keeps every-tick updates.

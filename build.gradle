@@ -87,12 +87,13 @@ dependencies {
     compileOnly("dev.ryanhcode.sable:sable-neoforge-${minecraft_version}:${sable_version}") { transitive = false }
 
     // Aeronautics 1.3.2 + Simulated 1.3.2 extracted from Modrinth bundled jar (not on public maven at 1.3.2)
-    compileOnly(files("../create-perf-libs-1.21.1/extracted/dev.eriksonn.aeronautics.aeronautics-neoforge-1.21.1-1.3.2.jar"))
-    compileOnly(files("../create-perf-libs-1.21.1/extracted/dev.simulated_team.simulated.simulated-neoforge-1.21.1-1.3.2.jar"))
+    def perfLibs = file(findProperty('perfLibsDir') ?: '../create-perf-libs-1.21.1/extracted')
+    compileOnly(files("${perfLibs}/dev.eriksonn.aeronautics.aeronautics-neoforge-1.21.1-1.3.2.jar"))
+    compileOnly(files("${perfLibs}/dev.simulated_team.simulated.simulated-neoforge-1.21.1-1.3.2.jar"))
 
     // Sable companion (Pose3d) + Rapier pipeline (mixin targets) extracted from sable jarjar
-    compileOnly(files("../create-perf-libs-1.21.1/extracted/sable-companion-common-1.21.1-1.6.0.jar"))
-    compileOnly(files("../create-perf-libs-1.21.1/extracted/sable-sable_rapier-1.21.1-2.0.5.jar"))
+    compileOnly(files("${perfLibs}/sable-companion-common-1.21.1-1.6.0.jar"))
+    compileOnly(files("${perfLibs}/sable-sable_rapier-1.21.1-2.0.5.jar"))
 }
 
 

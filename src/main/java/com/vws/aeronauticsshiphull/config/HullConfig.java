@@ -37,6 +37,9 @@ public final class HullConfig {
     private static final ModConfigSpec.IntValue NETWORK_PERIOD_TICKS;
     private static final ModConfigSpec.DoubleValue SIMPLIFIED_RADIUS;
 
+    private static final ModConfigSpec.BooleanValue CONTRAPTION_TICK;
+    private static final ModConfigSpec.IntValue CONTRAPTION_ENTITY_PERIOD;
+
     static {
         ModConfigSpec.Builder b = new ModConfigSpec.Builder();
         b.push("ship_hull");
@@ -106,6 +109,14 @@ public final class HullConfig {
         NETWORK_PERIOD_TICKS = b.comment("Send a real network pose every N ticks for throttled ships")
                 .defineInRange("networkPeriodTicks", 10, 1, 200);
         b.pop();
+
+        b.push("contraptionTick");
+        CONTRAPTION_TICK = b.comment("Skip kinematic contraption pose uploads and heat maps on parked/settled ships, "
+                + "and tick contraption entities on unattended parked ships every contraptionEntityPeriod ticks")
+                .define("enabled", true);
+        CONTRAPTION_ENTITY_PERIOD = b.comment("Contraption entity tick period on a parked ship with no player nearby (1 = every tick)")
+                .defineInRange("contraptionEntityPeriod", 4, 1, 20);
+        b.pop();
         b.pop();
         SPEC = b.build();
     }
@@ -140,6 +151,9 @@ public final class HullConfig {
     public static int distantCheapPeriodTicks() { return DISTANT_CHEAP_PERIOD.get(); }
     public static boolean throttleNetwork() { return THROTTLE_NETWORK.get(); }
     public static int networkPeriodTicks() { return NETWORK_PERIOD_TICKS.get(); }
+
+    public static boolean contraptionTick() { return CONTRAPTION_TICK.get(); }
+    public static int contraptionEntityPeriod() { return CONTRAPTION_ENTITY_PERIOD.get(); }
 
     private HullConfig() {}
 }
