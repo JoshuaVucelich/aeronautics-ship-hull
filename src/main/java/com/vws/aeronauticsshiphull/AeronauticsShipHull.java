@@ -14,6 +14,7 @@ import net.neoforged.bus.api.IEventBus;
 import net.neoforged.fml.ModContainer;
 import net.neoforged.fml.common.Mod;
 import net.neoforged.fml.config.ModConfig;
+import net.neoforged.fml.event.config.ModConfigEvent;
 import net.neoforged.fml.event.lifecycle.FMLCommonSetupEvent;
 import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.event.RegisterCommandsEvent;
@@ -38,12 +39,19 @@ public class AeronauticsShipHull {
     public AeronauticsShipHull(IEventBus modEventBus, ModContainer modContainer) {
         modContainer.registerConfig(ModConfig.Type.COMMON, HullConfig.SPEC);
         modEventBus.addListener(this::commonSetup);
+        modEventBus.addListener(this::onConfig);
         NeoForge.EVENT_BUS.addListener(this::onServerStarting);
         NeoForge.EVENT_BUS.addListener(this::onServerStopping);
         NeoForge.EVENT_BUS.addListener(this::onPlayerLogin);
         NeoForge.EVENT_BUS.addListener(this::onRegisterCommands);
         NeoForge.EVENT_BUS.addListener(this::onLevelTickPost);
         NeoForge.EVENT_BUS.addListener(this::onLevelUnload);
+    }
+
+    private void onConfig(ModConfigEvent event) {
+        if (!(event instanceof ModConfigEvent.Loading) && !(event instanceof ModConfigEvent.Reloading)) return;
+        if (event.getConfig().getSpec() != HullConfig.SPEC) return;
+        HullConfig.migrate();
     }
 
     private void commonSetup(FMLCommonSetupEvent event) {

@@ -11,6 +11,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
+import org.joml.Vector3dc;
 import org.slf4j.Logger;
 
 import com.mojang.logging.LogUtils;
@@ -19,6 +20,7 @@ import com.vws.aeronauticsshiphull.nested.NestedAssembly;
 import dev.ryanhcode.sable.api.physics.PhysicsPipelineBody;
 import dev.ryanhcode.sable.api.sublevel.KinematicContraption;
 import dev.ryanhcode.sable.companion.math.BoundingBox3dc;
+import dev.ryanhcode.sable.companion.math.Pose3d;
 import dev.ryanhcode.sable.sublevel.ServerSubLevel;
 import dev.ryanhcode.sable.sublevel.plot.ServerLevelPlot;
 
@@ -32,6 +34,11 @@ public final class ParkGroups {
     private static final double CELL = 32.0;
     /** A usable box that covers more cells than this is tested against every ship, not linked to all of them. */
     private static final int MAX_CELLS = 64;
+    /**
+     * A ship with no usable box still links to ships within this many blocks of its position.
+     * 128 reaches a grabber on a long unbuilt hull and leaves bases thousands of blocks apart separate.
+     */
+    private static final double NO_HULL_LINK_RADIUS = 128.0;
     private static int lastUnusableLogged = -1;
 
     /** Joint partner that is not a ship and not the static world. That group stays live. */
@@ -142,21 +149,24 @@ public final class ParkGroups {
     }
 
     /**
-     * Touch tests only ships that share a 32-block cell. A ship with no hull and no box, or any
-     * other unreadable box, links to every ship. A usable box that covers too many cells is compared
-     * with every ship instead of being unioned with all of them.
+     * Touch tests only ships that share a 32-block cell. A ship with no usable box links to ships
+     * within {@link #NO_HULL_LINK_RADIUS} of its position. It links to every ship only when that
+     * position cannot be read. A usable box that covers too many cells is compared with every ship
+     * instead of being unioned with all of them.
      */
     private static void linkTouching(List<ShipHull> live, int[] parent, int[] rank, double linkBlocks) {
         int n = live.size();
         List<Integer> linkAll = new ArrayList<>();
+        List<Integer> linkNear = new ArrayList<>();
         List<Integer> huge = new ArrayList<>();
         Map<Long, List<Integer>> cells = new HashMap<>();
         for (int i = 0; i < n; i++) {
             BoundingBox3dc box = sableBox(live.get(i));
             if (!usable(box)) {
                 // No hull and no box is the incident pattern: that ship must fail toward linked,
-                // never sit alone while a partner keeps simulating.
-                linkAll.add(i);
+                // never sit alone while a nearby partner keeps simulating.
+                if (positionOf(live.get(i)) == null) linkAll.add(i);
+                else linkNear.add(i);
                 continue;
             }
             int x0 = cell(box.minX() - linkBlocks);
@@ -196,15 +206,65 @@ public final class ParkGroups {
         }
         if (linkAll.size() != lastUnusableLogged && linkAll.size() >= 4) {
             lastUnusableLogged = linkAll.size();
-            LOGGER.warn("[shiphull] anomaly: {} ships have unreadable bounds and link to every group", linkAll.size());
+            LOGGER.warn("[shiphull] anomaly: {} ships have no readable position and link to every group", linkAll.size());
         } else if (linkAll.isEmpty()) {
             lastUnusableLogged = -1;
+        }
+        for (int i : linkNear) {
+            Vector3dc pos = positionOf(live.get(i));
+            if (pos == null) {
+                for (int j = 0; j < n; j++) {
+                    if (i != j) union(parent, rank, i, j);
+                }
+                continue;
+            }
+            for (int j = 0; j < n; j++) {
+                if (i != j && withinRadius(pos, live.get(j), NO_HULL_LINK_RADIUS)) union(parent, rank, i, j);
+            }
         }
         for (int i : linkAll) {
             for (int j = 0; j < n; j++) {
                 if (i != j) union(parent, rank, i, j);
             }
         }
+    }
+
+    /** Logical position, or null when the pose cannot be read or is not finite. */
+    private static Vector3dc positionOf(ShipHull hull) {
+        ServerSubLevel sub = hull.subLevel();
+        if (sub == null || sub.isRemoved()) return null;
+        try {
+            Pose3d pose = sub.logicalPose();
+            if (pose == null || pose.position() == null) return null;
+            Vector3dc pos = pose.position();
+            if (!Double.isFinite(pos.x()) || !Double.isFinite(pos.y()) || !Double.isFinite(pos.z())) return null;
+            return pos;
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
+    /** Point-to-box when the other ship has a usable box, otherwise point-to-point. */
+    private static boolean withinRadius(Vector3dc pos, ShipHull other, double radius) {
+        BoundingBox3dc box = sableBox(other);
+        double limit = radius * radius;
+        if (usable(box)) return pointBoxDistanceSq(pos, box) <= limit;
+        Vector3dc otherPos = positionOf(other);
+        if (otherPos == null) return true;
+        return pos.distanceSquared(otherPos) <= limit;
+    }
+
+    private static double pointBoxDistanceSq(Vector3dc pos, BoundingBox3dc box) {
+        double dx = axisOutside(pos.x(), box.minX(), box.maxX());
+        double dy = axisOutside(pos.y(), box.minY(), box.maxY());
+        double dz = axisOutside(pos.z(), box.minZ(), box.maxZ());
+        return dx * dx + dy * dy + dz * dz;
+    }
+
+    private static double axisOutside(double value, double min, double max) {
+        if (value < min) return min - value;
+        if (value > max) return value - max;
+        return 0.0;
     }
 
     private static int cell(double value) {
@@ -223,8 +283,9 @@ public final class ParkGroups {
 
     /**
      * Touching or nearby in the world, using Sable's world bounding box. A grabber on the end of a
-     * long hull is far from the other ship's center and still linked. An unreadable box links too,
-     * so one partner cannot freeze on its own.
+     * long hull is far from the other ship's center and still linked. Callers only pass ships that
+     * already have a usable box. An unusable box still counts as near, so this check cannot separate
+     * a pair that was meant to stay linked.
      */
     private static boolean near(ShipHull a, ShipHull b, double linkBlocks) {
         BoundingBox3dc boxA = sableBox(a);

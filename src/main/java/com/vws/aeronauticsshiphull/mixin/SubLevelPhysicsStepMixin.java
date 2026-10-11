@@ -12,6 +12,7 @@ import com.llamalad7.mixinextras.injector.v2.WrapWithCondition;
 import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
 import com.vws.aeronauticsshiphull.config.HullConfig;
+import com.vws.aeronauticsshiphull.hull.JointLinks;
 import com.vws.aeronauticsshiphull.hull.SableQueries;
 import com.vws.aeronauticsshiphull.hull.ShipHullManager;
 import com.vws.aeronauticsshiphull.hull.ShipTickGate;
@@ -46,6 +47,7 @@ public abstract class SubLevelPhysicsStepMixin {
     @Inject(method = "tick", at = @At("HEAD"))
     private void ash$tickHead(SubLevelContainer container, CallbackInfo ci) {
         ash$tickStart = System.nanoTime();
+        JointLinks.captureForStep();
         ShipHullManager mgr = ShipHullManager.getOrNull(level);
         if (mgr != null) mgr.notePhysicsGap(ash$tickStart);
     }

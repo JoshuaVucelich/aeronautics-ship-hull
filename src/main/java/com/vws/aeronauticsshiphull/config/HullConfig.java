@@ -1,9 +1,17 @@
 package com.vws.aeronauticsshiphull.config;
 
+import org.slf4j.Logger;
+
+import com.mojang.logging.LogUtils;
+
 import net.neoforged.neoforge.common.ModConfigSpec;
 
 public final class HullConfig {
+    private static final Logger LOGGER = LogUtils.getLogger();
+    /** A missing {@code configVersion} reads as 1. Version 2 has rewritten {@code absurdAngular} 40 to 80. */
+    public static final int CONFIG_VERSION_CURRENT = 2;
     public static final ModConfigSpec SPEC;
+    private static final ModConfigSpec.IntValue CONFIG_VERSION;
     private static final ModConfigSpec.BooleanValue SAFE_MODE;
     private static final ModConfigSpec.IntValue LAG_WAKE_MILLIS;
     private static final ModConfigSpec.BooleanValue ENABLED;
@@ -62,6 +70,10 @@ public final class HullConfig {
     static {
         ModConfigSpec.Builder b = new ModConfigSpec.Builder();
         b.push("ship_hull");
+        CONFIG_VERSION = b.comment("Internal migration counter. A missing key is version 1. "
+                + "Loading version 1 rewrites absurdAngular 40 to 80 and saves this as 2. "
+                + "A file that already says 2 keeps the absurdAngular written there.")
+                .defineInRange("configVersion", 1, 1, 1000);
         SAFE_MODE = b.comment("Global kill switch. When true, every parked ship is woken and nothing new is parked. "
                 + "/shiphull safe-mode on does the same immediately. /shiphull safe-mode off clears that override "
                 + "and follows this value again. A mixin miss forces safe-mode on, and the command cannot clear that.")
@@ -197,6 +209,26 @@ public final class HullConfig {
         b.pop();
         b.pop();
         SPEC = b.build();
+    }
+
+    public static int configVersion() { return CONFIG_VERSION.get(); }
+
+    /**
+     * Rewrite an old absurdAngular of 40 up to 80, then stamp {@link #CONFIG_VERSION_CURRENT}.
+     * A file that already reached that version is left alone, even if it still says 40.
+     */
+    public static void migrate() {
+        try {
+            if (CONFIG_VERSION.get() >= CONFIG_VERSION_CURRENT) return;
+            if (CONFIG_VERSION.get() < 2 && Math.abs(ABSURD_ANGULAR.get() - 40.0) < 1.0e-4) {
+                ABSURD_ANGULAR.set(80.0);
+                LOGGER.warn("[shiphull] migrated absurdAngular from 40 to 80");
+            }
+            CONFIG_VERSION.set(CONFIG_VERSION_CURRENT);
+            SPEC.save();
+        } catch (Throwable t) {
+            LOGGER.warn("[shiphull] config migration failed: {}", t.toString());
+        }
     }
 
     public static boolean safeMode() { return SAFE_MODE.get(); }

@@ -60,8 +60,9 @@ public final class PoseGuard {
             if (hull == null || !hull.enabled) return;
             String why = unsafe(hull, sub);
             if (why == null) return;
-            // A jointed body is not moved on its own. The whole group's velocity is zeroed.
-            if (mgr.velocityOnlyJointed(hull)) mgr.zeroJointedGroup(hull, why);
+            // A jointed body is not moved on its own. Near Sable's bounds the whole group
+            // shifts by one offset. Other reasons only zero the group's velocity.
+            if (mgr.velocityOnlyJointed(hull)) mgr.guardJointed(hull, why);
             else restore(hull, sub, why);
         } catch (Throwable t) {
             LOGGER.warn("[shiphull] pose guard failed: {}", t.toString());

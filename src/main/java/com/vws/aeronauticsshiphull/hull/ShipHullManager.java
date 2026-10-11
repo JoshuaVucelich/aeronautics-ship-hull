@@ -21,6 +21,7 @@ import com.vws.aeronauticsshiphull.api.ShipCadence;
 import com.vws.aeronauticsshiphull.config.HullConfig;
 import com.vws.aeronauticsshiphull.nested.NestedAssembly;
 import com.vws.aeronauticsshiphull.profile.HullProfiler;
+import dev.ryanhcode.sable.SableConfig;
 import dev.ryanhcode.sable.api.physics.mass.MassTracker;
 import dev.ryanhcode.sable.api.sublevel.KinematicContraption;
 import dev.ryanhcode.sable.physics.impl.rapier.RapierPhysicsPipeline;
@@ -45,6 +46,7 @@ import dev.ryanhcode.sable.api.physics.PhysicsPipeline;
 import dev.ryanhcode.sable.api.physics.PhysicsPipelineBody;
 import dev.ryanhcode.sable.api.sublevel.ServerSubLevelContainer;
 import dev.ryanhcode.sable.api.sublevel.SubLevelContainer;
+import dev.ryanhcode.sable.companion.math.BoundingBox3dc;
 import dev.ryanhcode.sable.companion.math.Pose3d;
 import dev.ryanhcode.sable.companion.math.Pose3dc;
 import dev.ryanhcode.sable.sublevel.ServerSubLevel;
@@ -118,8 +120,9 @@ public final class ShipHullManager {
     private final Set<UUID> movingHits = new HashSet<>();
     private long movingScanTick = Long.MIN_VALUE;
     private boolean entityScanFailedLogged;
-    /** Group keys already logged by the joint velocity clamp. */
+    /** Group keys already logged by the joint velocity clamp. Cleared at {@link #WARN_ONCE_CAP}. */
     private final Set<String> jointClampLogged = new HashSet<>();
+    private static final int WARN_ONCE_CAP = 256;
     private static final int ENTITY_CELL = 32;
     private static final int ENTITY_CELL_CAP = 8;
     private static final int ENTITY_SCAN_PERIOD = 4;
@@ -228,6 +231,8 @@ public final class ShipHullManager {
         ShipHull h = ships.get(sub.getUniqueId());
         if (h == null) return;
         pendingAdds.remove(sub.getUniqueId());
+        JointLinks.forgetShip(h.id);
+        jointClampLogged.removeIf(key -> key.contains(h.id.toString()));
         try {
             wakePartnersIfParked(h, "memberUnloaded");
         } catch (Throwable t) {
@@ -696,8 +701,9 @@ public final class ShipHullManager {
     }
 
     /**
-     * Before the Rapier step, zero a whole jointed group when any member is past the absurd
-     * linear or angular cap. One body is never teleported on its own.
+     * Before the Rapier step, zero a multi-member group that is past the linear cap.
+     * The angular cap applies only when the group shares a joint. Touching ships are left
+     * to spin. One body is never teleported on its own.
      */
     public void clampJointedBeforeStep() {
         if (!globallyEnabled()) return;
@@ -705,10 +711,15 @@ public final class ShipHullManager {
         if (phys == null) return;
         PhysicsPipeline pipe = phys.getPipeline();
         if (pipe == null) return;
-        List<JointLinks.Edge> edges = JointLinks.snapshot();
-        List<List<ShipHull>> batches = new ArrayList<>();
+        List<JointLinks.Edge> edges = JointLinks.forStep();
+        double maxLin = HullConfig.absurdSpeed();
+        double maxAng = HullConfig.absurdAngular();
+        Set<UUID> done = new HashSet<>();
         for (ParkGroups.Group group : groupsThisTick) {
-            if (group.members.size() > 1 || anyShares(group.members, edges)) batches.add(group.members);
+            boolean jointed = anyShares(group.members, edges);
+            if (group.members.size() <= 1 && !jointed) continue;
+            double ang = jointed ? maxAng : Double.POSITIVE_INFINITY;
+            clampBatch(group.members, maxLin, ang, jointed, pipe, done);
         }
         for (JointLinks.Edge edge : edges) {
             ShipHull a = hullOfBody(edge.a);
@@ -717,24 +728,24 @@ public final class ShipHullManager {
             List<ShipHull> pair = new ArrayList<>(2);
             if (a != null) pair.add(a);
             if (b != null && (a == null || !a.id.equals(b.id))) pair.add(b);
-            batches.add(pair);
+            clampBatch(pair, maxLin, maxAng, true, pipe, done);
         }
-        double maxLin = HullConfig.absurdSpeed();
-        double maxAng = HullConfig.absurdAngular();
-        Set<UUID> done = new HashSet<>();
-        for (List<ShipHull> batch : batches) {
-            if (!overSpeed(batch, maxLin, maxAng)) continue;
-            StringBuilder ids = new StringBuilder();
-            for (ShipHull member : batch) {
-                if (!done.add(member.id)) continue;
-                zeroVelocity(member, pipe);
-                if (ids.length() > 0) ids.append(',');
-                ids.append(member.id);
-            }
-            if (ids.length() == 0) continue;
-            if (jointClampLogged.add(ids.toString())) {
-                anomaly("clamped jointed velocity group " + ids);
-            }
+    }
+
+    private void clampBatch(List<ShipHull> batch, double maxLin, double maxAng, boolean jointed,
+            PhysicsPipeline pipe, Set<UUID> done) {
+        if (!overSpeed(batch, maxLin, maxAng)) return;
+        StringBuilder ids = new StringBuilder();
+        for (ShipHull member : batch) {
+            if (!done.add(member.id)) continue;
+            zeroVelocity(member, pipe);
+            if (ids.length() > 0) ids.append(',');
+            ids.append(member.id);
+        }
+        if (ids.length() == 0) return;
+        if (jointClampLogged.size() >= WARN_ONCE_CAP) jointClampLogged.clear();
+        if (jointClampLogged.add(ids.toString())) {
+            anomaly("clamped " + (jointed ? "jointed" : "touching") + " velocity group " + ids);
         }
     }
 
@@ -749,17 +760,146 @@ public final class ShipHullManager {
         return false;
     }
 
-    /** Zero velocity on this ship, its group, and its joint partners. Poses stay where they are. */
-    public void zeroJointedGroup(ShipHull hull, String why) {
+    /**
+     * Jointed pose guard. Near Sable's remove bounds the whole group moves by one shared Y offset.
+     * A group taller than the keep range is stopped, not split. Every other reason only zeroes velocity.
+     */
+    public void guardJointed(ShipHull hull, String why) {
+        if ("remove-bounds".equals(why) && shiftJointedClear(hull)) return;
+        zeroJointedGroup(hull, why);
+    }
+
+    /**
+     * Shift every jointed member by the same Y so the worst vertical span clears the remove margin
+     * by one block. Returns true when the group was shifted or when both bounds were hit and the
+     * group was only stopped.
+     */
+    private boolean shiftJointedClear(ShipHull hull) {
+        LinkedHashMap<UUID, ShipHull> members = jointedMembers(hull);
+        double floor = SableConfig.SUB_LEVEL_REMOVE_MIN.getAsDouble() + HullConfig.poseGuardMargin() + 1.0;
+        double ceil = SableConfig.SUB_LEVEL_REMOVE_MAX.getAsDouble() - HullConfig.poseGuardMargin() - 1.0;
+        double lowest = Double.POSITIVE_INFINITY;
+        double highest = Double.NEGATIVE_INFINITY;
+        boolean any = false;
+        for (ShipHull member : members.values()) {
+            double[] span = verticalSpan(member);
+            if (span == null) continue;
+            any = true;
+            lowest = Math.min(lowest, span[0]);
+            highest = Math.max(highest, span[1]);
+        }
+        if (!any) return false;
+        boolean needUp = lowest < floor;
+        boolean needDown = highest > ceil;
+        SubLevelPhysicsSystem phys = SubLevelPhysicsSystem.get(level);
+        PhysicsPipeline pipe = phys == null ? null : phys.getPipeline();
+        if (needUp && needDown) {
+            for (ShipHull member : members.values()) zeroVelocity(member, pipe);
+            if (!hull.poseGuardLogged) {
+                hull.poseGuardLogged = true;
+                HullProfiler.POSE_RESTORES.incrementAndGet();
+                anomaly("jointed group spans both remove bounds; velocity zeroed " + hull.id + " size=" + members.size());
+            }
+            return true;
+        }
+        double dy = needUp ? floor - lowest : needDown ? ceil - highest : 0.0;
+        if (dy == 0.0) return false;
+        for (ShipHull member : members.values()) shiftMember(member, dy, pipe);
+        if (!hull.poseGuardLogged) {
+            hull.poseGuardLogged = true;
+            HullProfiler.POSE_RESTORES.incrementAndGet();
+            anomaly("shifted jointed group " + hull.id + " dy=" + dy + " reason=remove-bounds size=" + members.size());
+        }
+        return true;
+    }
+
+    /** World-space vertical span of the hull box, falling back to the logical pose. */
+    private static double[] verticalSpan(ShipHull hull) {
+        ServerSubLevel sub = hull.subLevel();
+        if (sub == null || sub.isRemoved()) return null;
+        double y;
+        try {
+            Pose3d pose = sub.logicalPose();
+            if (pose == null || pose.position() == null) return null;
+            y = pose.position().y();
+            if (!Double.isFinite(y)) return null;
+        } catch (Throwable ignored) {
+            return null;
+        }
+        double minY = y;
+        double maxY = y;
+        try {
+            BoundingBox3dc box = sub.boundingBox();
+            if (box != null && Double.isFinite(box.minY()) && Double.isFinite(box.maxY())) {
+                minY = Math.min(minY, box.minY());
+                maxY = Math.max(maxY, box.maxY());
+            }
+        } catch (Throwable ignored) {
+            // Pose Y is enough when the box cannot be read.
+        }
+        return new double[] { minY, maxY };
+    }
+
+    private void shiftMember(ShipHull member, double dy, PhysicsPipeline pipe) {
+        ServerSubLevel sub = member.subLevel();
+        if (sub == null || sub.isRemoved()) return;
+        Pose3d pose;
+        try {
+            pose = sub.logicalPose();
+        } catch (Throwable ignored) {
+            zeroVelocity(member, pipe);
+            return;
+        }
+        if (pose == null || pose.position() == null) {
+            zeroVelocity(member, pipe);
+            return;
+        }
+        pose.position().add(0.0, dy, 0.0);
+        if (member.hasLastGoodPose) member.lastGoodPos.add(0.0, dy, 0.0);
+        if (member.mode == HullMode.PARKED) member.parkedPos.add(0.0, dy, 0.0);
+        if (pipe != null && pose.orientation() != null) {
+            INTERNAL = true;
+            try {
+                pipe.teleport(sub, pose.position(), pose.orientation());
+            } catch (Throwable t) {
+                LOGGER.warn("[shiphull] jointed shift teleport {} failed: {}", member.id, t.toString());
+            } finally {
+                INTERNAL = false;
+            }
+        }
+        zeroVelocity(member, pipe);
+    }
+
+    /** This ship, its park group, and every ship reached through a joint. One joint-list copy. */
+    private LinkedHashMap<UUID, ShipHull> jointedMembers(ShipHull hull) {
         LinkedHashMap<UUID, ShipHull> members = new LinkedHashMap<>();
         members.put(hull.id, hull);
         for (ShipHull member : groupOf(hull).members) members.put(member.id, member);
-        for (JointLinks.Edge edge : JointLinks.snapshot()) {
-            if (!bodyIs(edge.a, hull.id) && !bodyIs(edge.b, hull.id)) continue;
-            PhysicsPipelineBody otherBody = bodyIs(edge.a, hull.id) ? edge.b : edge.a;
-            ShipHull other = hullOfBody(otherBody);
-            if (other != null) members.put(other.id, other);
+        List<JointLinks.Edge> edges = JointLinks.snapshot();
+        boolean grew = true;
+        while (grew) {
+            grew = false;
+            for (JointLinks.Edge edge : edges) {
+                ShipHull a = hullOfBody(edge.a);
+                ShipHull b = hullOfBody(edge.b);
+                boolean hasA = a != null && members.containsKey(a.id);
+                boolean hasB = b != null && members.containsKey(b.id);
+                if (hasA && b != null && !hasB) {
+                    members.put(b.id, b);
+                    grew = true;
+                }
+                if (hasB && a != null && !hasA) {
+                    members.put(a.id, a);
+                    grew = true;
+                }
+            }
         }
+        return members;
+    }
+
+    /** Zero velocity on this ship, its group, and its joint partners. Poses stay where they are. */
+    public void zeroJointedGroup(ShipHull hull, String why) {
+        LinkedHashMap<UUID, ShipHull> members = jointedMembers(hull);
         SubLevelPhysicsSystem phys = SubLevelPhysicsSystem.get(level);
         PhysicsPipeline pipe = phys == null ? null : phys.getPipeline();
         for (ShipHull member : members.values()) zeroVelocity(member, pipe);
@@ -771,7 +911,7 @@ public final class ShipHullManager {
     }
 
     private boolean sharesConstraint(ShipHull hull) {
-        return shares(hull, JointLinks.snapshot());
+        return shares(hull, JointLinks.forStep());
     }
 
     private static boolean anyShares(List<ShipHull> members, List<JointLinks.Edge> edges) {

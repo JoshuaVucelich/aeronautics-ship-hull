@@ -40,7 +40,10 @@ public final class JointLinks {
     private static final Map<Object, Edge> EDGES = new IdentityHashMap<>();
     /** Body pairs already warned for anchors under a block, or overlapping hulls. */
     private static final Set<String> CLOSE_WARNED = new HashSet<>();
+    private static final int CLOSE_WARNED_CAP = 256;
     private static final double CLOSE_ANCHOR_BLOCKS = 1.0;
+    /** One copy of the joint list for the physics step. Substeps read this instead of copying again. */
+    private static volatile List<Edge> stepEdges;
 
     private JointLinks() {}
 
@@ -75,7 +78,9 @@ public final class JointLinks {
         boolean overlap = hullsOverlap(sa, sb);
         if (!close && !overlap) return;
         synchronized (CLOSE_WARNED) {
-            if (!CLOSE_WARNED.add(key)) return;
+            if (CLOSE_WARNED.contains(key)) return;
+            if (CLOSE_WARNED.size() >= CLOSE_WARNED_CAP) CLOSE_WARNED.clear();
+            CLOSE_WARNED.add(key);
         }
         ShipHullManager.anomaly("joint between " + idA + " and " + idB
                 + (close ? " anchors<1" : "")
@@ -129,6 +134,29 @@ public final class JointLinks {
         synchronized (EDGES) {
             EDGES.entrySet().removeIf(e -> e.getKey() instanceof PhysicsConstraintHandle handle && !handle.isValid());
             return new ArrayList<>(EDGES.values());
+        }
+    }
+
+    /** Copy the joint list once, at the start of the physics tick. */
+    public static void captureForStep() {
+        stepEdges = snapshot();
+    }
+
+    /** The list captured for this physics step. A call before the first capture copies once and keeps it. */
+    public static List<Edge> forStep() {
+        List<Edge> edges = stepEdges;
+        if (edges != null) return edges;
+        edges = snapshot();
+        stepEdges = edges;
+        return edges;
+    }
+
+    /** Drop warn-once keys for a ship that has left the level, so the set cannot grow for the life of the process. */
+    public static void forgetShip(UUID id) {
+        if (id == null) return;
+        String token = id.toString();
+        synchronized (CLOSE_WARNED) {
+            CLOSE_WARNED.removeIf(key -> key.contains(token));
         }
     }
 }
