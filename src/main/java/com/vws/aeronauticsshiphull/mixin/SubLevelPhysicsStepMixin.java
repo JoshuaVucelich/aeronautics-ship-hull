@@ -9,7 +9,9 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 import com.llamalad7.mixinextras.injector.v2.WrapWithCondition;
+import com.vws.aeronauticsshiphull.config.HullConfig;
 import com.vws.aeronauticsshiphull.hull.ShipHullManager;
+import com.vws.aeronauticsshiphull.mixin.accessor.Rapier3DInvoker;
 import com.vws.aeronauticsshiphull.profile.HullProfiler;
 
 import dev.ryanhcode.sable.api.sublevel.ServerSubLevelContainer;
@@ -34,6 +36,7 @@ public abstract class SubLevelPhysicsStepMixin {
 
     @Unique private int ash$savedSubsteps = -1;
     @Unique private long ash$tickStart;
+    @Unique private boolean ash$solverLod;
 
     @Inject(method = "tick", at = @At("HEAD"))
     private void ash$tickHead(SubLevelContainer container, CallbackInfo ci) {
@@ -58,7 +61,20 @@ public abstract class SubLevelPhysicsStepMixin {
             ci.cancel();
             return;
         }
+        if (mgr.shouldCoastStep()) {
+            container.processSubLevelRemovals();
+            this.currentSubstep = this.config.substepsPerTick;
+            HullProfiler.COAST_SKIPS.incrementAndGet();
+            ci.cancel();
+            return;
+        }
         mgr.noteStepRan();
+        if (mgr.distantSolverThisTick()) {
+            ash$solverLod = true;
+            Rapier3DInvoker.ash$configSolverIterations(
+                    HullConfig.distantSolverIterations(), this.config.pgsIterations, this.config.stabilizationIterations);
+            HullProfiler.SOLVER_LOD_TICKS.incrementAndGet();
+        }
         if (mgr.reducedSubsteps() && this.config.substepsPerTick > 1) {
             ash$savedSubsteps = this.config.substepsPerTick;
             this.config.substepsPerTick = 1;
@@ -68,6 +84,11 @@ public abstract class SubLevelPhysicsStepMixin {
 
     @Inject(method = "tickPipelinePhysics", at = @At("RETURN"))
     private void ash$stepReturn(ServerSubLevelContainer container, CallbackInfo ci) {
+        if (ash$solverLod) {
+            Rapier3DInvoker.ash$configSolverIterations(
+                    this.config.solverIterations, this.config.pgsIterations, this.config.stabilizationIterations);
+            ash$solverLod = false;
+        }
         if (ash$savedSubsteps > 0) {
             this.config.substepsPerTick = ash$savedSubsteps;
             this.currentSubstep = ash$savedSubsteps;

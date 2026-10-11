@@ -29,3 +29,7 @@ Phase 4 emitter: `ShipCadence` (+ FactoryCadence reflection bridge).
 - Throttled Sable network pose sync for far unpiloted ships
 - Skip/defer per-block collider updates while simplified/CHEAP rigid motion
 - Does NOT remove Rapier bodies; piloted / near-player / REBUILDING keep full voxels
+
+**Phase 8 (1.0.0-phase8-rapier):** Rapier step LOD (`/shiphull phase8 off|on`).
+- Separated unpiloted FULL ships (lookahead clear of terrain and other hulls) skip `Rapier3D.step` and coast at the last solved velocity. A real step still runs every 4 ticks so lift, drag, and gravity refresh. Piloted, rebuilding, block-burst, or about-to-collide ships force a real step for the whole scene.
+- When a real step runs but no Rapier ship is piloted or within 64 blocks of a player, solver iterations drop from Sable's 18 to 8. Contact generation is unchanged. The original iteration count is restored the tick someone is close.

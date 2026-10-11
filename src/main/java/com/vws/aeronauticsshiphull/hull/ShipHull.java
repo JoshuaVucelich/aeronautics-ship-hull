@@ -91,6 +91,10 @@ public final class ShipHull {
     public int routeIndex;
 
     private ServerSubLevel subLevel; // may be refreshed
+    /** Bumped when the pose or hull bounds change so worldHullAABB can be reused within a tick. */
+    private int poseGen;
+    private int worldBoxGen = Integer.MIN_VALUE;
+    private AABB worldBox;
 
     public ShipHull(ServerSubLevel sub) {
         this.subLevel = sub;
@@ -201,6 +205,11 @@ public final class ShipHull {
             if (z > maxZ) maxZ = z;
         }
         hullValid = true;
+        bumpPose();
+    }
+
+    public void bumpPose() {
+        poseGen++;
     }
 
     public static InteractiveCell.Kind classify(BlockState st, BlockEntity be) {
@@ -254,6 +263,13 @@ public final class ShipHull {
     }
 
     public AABB worldHullAABB() {
+        if (worldBox != null && worldBoxGen == poseGen) return worldBox;
+        worldBox = computeWorldHullAABB();
+        worldBoxGen = poseGen;
+        return worldBox;
+    }
+
+    private AABB computeWorldHullAABB() {
         Pose3d pose = subLevel.logicalPose();
         AABB local = localHullAABB();
         // Corner transform for oriented hull → world AABB
