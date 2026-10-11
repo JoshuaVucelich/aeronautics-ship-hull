@@ -5,6 +5,7 @@ import org.spongepowered.asm.mixin.injection.At;
 
 import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
+import com.vws.aeronauticsshiphull.hull.SableQueries;
 import com.vws.aeronauticsshiphull.hull.ShipTickGate;
 import com.vws.aeronauticsshiphull.profile.HullProfiler;
 
@@ -18,10 +19,14 @@ public abstract class LevelBlockEntityTickMixin {
     @WrapOperation(method = "tickBlockEntities",
             at = @At(value = "INVOKE", target = "Lnet/minecraft/world/level/block/entity/TickingBlockEntity;tick()V"))
     private void ash$throttleShipBlockEntities(TickingBlockEntity ticker, Operation<Void> original) {
-        Level self = (Level) (Object) this;
-        if (self instanceof ServerLevel sl && !ShipTickGate.allowBlockEntity(sl, ticker.getPos())) {
-            HullProfiler.BLOCK_ENTITY_SKIPS.incrementAndGet();
-            return;
+        try {
+            Level self = (Level) (Object) this;
+            if (self instanceof ServerLevel sl && !ShipTickGate.allowBlockEntity(sl, ticker.getPos())) {
+                HullProfiler.BLOCK_ENTITY_SKIPS.incrementAndGet();
+                return;
+            }
+        } catch (Throwable t) {
+            SableQueries.failOpen("block entity tick", t);
         }
         original.call(ticker);
     }

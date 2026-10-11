@@ -6,6 +6,7 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 import com.simibubi.create.content.contraptions.AbstractContraptionEntity;
+import com.vws.aeronauticsshiphull.hull.SableQueries;
 import com.vws.aeronauticsshiphull.hull.ShipHullManager;
 import com.vws.aeronauticsshiphull.profile.HullProfiler;
 
@@ -23,18 +24,28 @@ public abstract class AbstractContraptionEntityTickMixin {
 
     @Inject(method = "tick", at = @At("HEAD"), cancellable = true)
     private void ash$throttleParked(CallbackInfo ci) {
+        try {
+            if (ash$shouldThrottle()) {
+                HullProfiler.CONTRAPTION_ENTITY_SKIPS.incrementAndGet();
+                ci.cancel();
+            }
+        } catch (Throwable t) {
+            SableQueries.failOpen("contraption entity tick", t);
+        }
+    }
+
+    private boolean ash$shouldThrottle() {
         AbstractContraptionEntity self = (AbstractContraptionEntity) (Object) this;
-        if (!(self.level() instanceof ServerLevel sl)) return;
-        if (!(self instanceof KinematicContraption kc) || !kc.sable$isValid()) return;
+        if (!(self.level() instanceof ServerLevel sl)) return false;
+        if (!(self instanceof KinematicContraption kc)) return false;
         for (var passenger : self.getPassengers()) {
-            if (passenger instanceof Player) return;
+            if (passenger instanceof Player) return false;
         }
         ShipHullManager mgr = ShipHullManager.getOrNull(sl);
-        if (mgr == null) return;
-        var pos = kc.sable$getPosition();
-        if (mgr.throttleContraptionEntity(pos.x(), pos.y(), pos.z(), sl.getGameTime())) {
-            HullProfiler.CONTRAPTION_ENTITY_SKIPS.incrementAndGet();
-            ci.cancel();
-        }
+        if (mgr == null) return false;
+        // Mass tracker is still null at HEAD; Sable 2.0.3 assigns it later in this same tick.
+        var pos = SableQueries.contraptionPosition(kc);
+        if (pos == null) return false;
+        return mgr.throttleContraptionEntity(pos.x(), pos.y(), pos.z(), sl.getGameTime());
     }
 }

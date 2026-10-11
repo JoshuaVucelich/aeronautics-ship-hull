@@ -2,15 +2,15 @@
 
 NeoForge mod for Minecraft 1.21.1. Server-side ship hull physics for Create ships running on Aeronautics and Sable.
 
-This tree is `1.0.0-phase8-combined`. Mod id `aeronautics_ship_hull`. License [CC0 1.0](LICENSE).
+This tree is `1.0.0-phase8-combined.1`. Mod id `aeronautics_ship_hull`. License [CC0 1.0](LICENSE).
 
 Pinned versions:
 
 - NeoForge 21.1.256
 - Create 6.0.10
-- Aeronautics 1.3.2
-- Sable 2.0.5
-- Simulated 1.3.2
+- Aeronautics 1.3.0
+- Sable 2.0.3
+- Simulated 1.3.0
 
 The jar stays separate from `create_factory_graph`, so a Create update does not force a rebuild of this mod. Older Aeronautics 1.1 to 1.2 and Sable 1.x builds are on `mc/1.21.1-sable1` (`1.0.0-sable1`).
 
@@ -77,4 +77,4 @@ Java 21.
 ./gradlew build
 ```
 
-Create, Ponder, Flywheel, and Registrate resolve from Maven. Sable 2.0.5 resolves from `maven.ryanhcode.dev`. Aeronautics 1.3.2, Simulated 1.3.2, and the Sable companion and Rapier jars are `compileOnly` files. `build.gradle` expects them under `../create-perf-libs-1.21.1/extracted/`, or pass `-PperfLibsDir=` to point somewhere else.
+Create, Ponder, Flywheel, and Registrate resolve from Maven. Sable 2.0.3 resolves from `maven.ryanhcode.dev`. Aeronautics 1.3.0, Simulated 1.3.0, and the Sable companion and Rapier jars are `compileOnly` files. `build.gradle` expects them under `../create-perf-libs-1.21.1/extracted/`, or pass `-PperfLibsDir=` to point somewhere else.

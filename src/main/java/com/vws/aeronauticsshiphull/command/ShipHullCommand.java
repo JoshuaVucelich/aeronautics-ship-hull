@@ -229,7 +229,8 @@ public final class ShipHullCommand {
             return 1;
         }
         for (ShipHull h : m.all()) {
-            var pp = h.subLevel() != null ? h.subLevel().logicalPose().position() : null;
+            var pose = h.subLevel() != null ? h.subLevel().logicalPose() : null;
+            var pp = pose == null ? null : pose.position();
             String line = String.format("%s mode=%s piloted=%s rapierSolve=%s voxels=%d interactive=%d cheap=%d rapierSteps=%d nested=%d still=%d wake=%s pos=%s",
                     h.id, h.mode, h.piloted, h.mode.usesRapier(), h.voxels.size(), h.interactive.size(),
                     h.cheapSteps, h.rapierSteps, h.nested.size(), h.stillTicks, h.lastWakeReason,
@@ -317,6 +318,9 @@ public final class ShipHullCommand {
     }
 
     private static PoseLine poseOf(ShipHull h) {
+        if (h.subLevel() == null || h.subLevel().logicalPose() == null || h.subLevel().logicalPose().position() == null) {
+            return new PoseLine("-");
+        }
         var p = h.subLevel().logicalPose().position();
         return new PoseLine(String.format("%.1f,%.1f,%.1f", p.x(), p.y(), p.z()));
     }
@@ -345,7 +349,12 @@ public final class ShipHullCommand {
         ShipHull h = requireHull(c, "uuid");
         if (h == null) return 0;
         double r = DoubleArgumentType.getDouble(c, "radius");
-        var pos = h.subLevel().logicalPose().position();
+        var pose = h.subLevel() == null ? null : h.subLevel().logicalPose();
+        var pos = pose == null ? null : pose.position();
+        if (pos == null) {
+            c.getSource().sendFailure(Component.literal("ship pose is not ready"));
+            return 0;
+        }
         int removed = mgr(c).handleExplosion(h, pos.x(), pos.y(), pos.z(), r);
         c.getSource().sendSuccess(() -> Component.literal("explosion@pose removed=" + removed + " mode=" + h.mode + " voxels=" + h.voxels.size() + " splits=" + h.splitsPerformed), true);
         return Math.max(removed, 1);

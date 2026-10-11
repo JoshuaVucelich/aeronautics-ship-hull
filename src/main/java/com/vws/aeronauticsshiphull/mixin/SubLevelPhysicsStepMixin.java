@@ -12,6 +12,7 @@ import com.llamalad7.mixinextras.injector.v2.WrapWithCondition;
 import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
 import com.vws.aeronauticsshiphull.config.HullConfig;
+import com.vws.aeronauticsshiphull.hull.SableQueries;
 import com.vws.aeronauticsshiphull.hull.ShipHullManager;
 import com.vws.aeronauticsshiphull.hull.ShipTickGate;
 import com.vws.aeronauticsshiphull.mixin.accessor.Rapier3DInvoker;
@@ -56,9 +57,13 @@ public abstract class SubLevelPhysicsStepMixin {
     @WrapOperation(method = "tick", at = @At(value = "INVOKE",
             target = "Ldev/ryanhcode/sable/api/block/BlockEntitySubLevelActor;sable$tick(Ldev/ryanhcode/sable/sublevel/ServerSubLevel;)V"))
     private void ash$actor(BlockEntitySubLevelActor actor, ServerSubLevel sub, Operation<Void> original) {
-        if (!ShipTickGate.allowActor(level, sub)) {
-            HullProfiler.ACTOR_TICK_SKIPS.incrementAndGet();
-            return;
+        try {
+            if (!ShipTickGate.allowActor(level, sub)) {
+                HullProfiler.ACTOR_TICK_SKIPS.incrementAndGet();
+                return;
+            }
+        } catch (Throwable t) {
+            SableQueries.failOpen("block entity actor", t);
         }
         original.call(actor, sub);
     }

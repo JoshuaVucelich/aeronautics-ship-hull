@@ -192,7 +192,7 @@ public final class ShipHullManager {
     public boolean skipContraptionPose(double x, double y, double z) {
         if (!contraptionTick()) return false;
         ShipHull h = hullAt(x, y, z);
-        if (h == null || !h.enabled) return false;
+        if (h == null || !h.enabled || !h.poseReady()) return false;
         if (h.mode == HullMode.PARKED) return true;
         return h.mode == HullMode.CHEAP
                 && h.linearVel.lengthSquared() < 1e-6
@@ -203,7 +203,7 @@ public final class ShipHullManager {
     public boolean throttleContraptionEntity(double x, double y, double z, long gameTime) {
         if (!contraptionTick()) return false;
         ShipHull h = hullAt(x, y, z);
-        if (h == null || h.mode != HullMode.PARKED) return false;
+        if (h == null || !h.poseReady() || h.voxels.isEmpty() || h.mode != HullMode.PARKED) return false;
         if (playerNear(h, HullConfig.wakeRadius())) return false;
         int period = HullConfig.contraptionEntityPeriod();
         if (period <= 1) return false;
@@ -212,7 +212,7 @@ public final class ShipHullManager {
 
     private ShipHull hullAt(double x, double y, double z) {
         for (ShipHull h : ships.values()) {
-            if (!h.hullValid || h.subLevel() == null) continue;
+            if (!h.poseReady()) continue;
             if (h.worldHullAABB().inflate(2.0).contains(x, y, z)) return h;
         }
         return null;
@@ -237,7 +237,7 @@ public final class ShipHullManager {
             parkedWorldTick = now;
             parkedWorldBoxes.clear();
             for (ShipHull hull : ships.values()) {
-                if (!hull.enabled || hull.mode != HullMode.PARKED || hull.subLevel() == null) continue;
+                if (!hull.enabled || !hull.poseReady() || hull.mode != HullMode.PARKED || hull.subLevel() == null) continue;
                 if (playerNear(hull, HullConfig.wakeRadius())) continue;
                 parkedWorldBoxes.add(hull.worldHullAABB().inflate(2.0));
             }
@@ -292,6 +292,7 @@ public final class ShipHullManager {
         boolean anyFull = false;
         for (ShipHull h : ships.values()) {
             if (!h.enabled || h.subLevel() == null || h.subLevel().isRemoved()) continue;
+            if (!h.poseReady()) return false;
             if (!h.mode.usesRapier()) continue;
             if (h.mode == HullMode.REBUILDING || h.piloted || h.wakeRequested || h.blockChangesThisTick > 0) return false;
             anyFull = true;
@@ -332,8 +333,10 @@ public final class ShipHullManager {
     /** Constant-velocity step for one skipped Rapier tick. Colliders stay; the body is teleported so the next real step starts here. */
     private void integrateCoast(ShipHull hull) {
         ServerSubLevel sub = hull.subLevel();
+        if (sub == null || !hull.poseReady()) return;
         double dt = 0.05;
         Pose3d pose = sub.logicalPose();
+        if (pose == null || pose.position() == null || pose.orientation() == null) return;
         var v = sub.latestLinearVelocity;
         pose.position().add(v.x * dt, v.y * dt, v.z * dt);
         var w = sub.latestAngularVelocity;
@@ -713,7 +716,7 @@ public final class ShipHullManager {
     public boolean throttlePoseSend(ServerSubLevel sub) {
         if (!shipSyncEnabled() || sub == null || sub.isRemoved()) return false;
         ShipHull hull = ships.get(sub.getUniqueId());
-        if (hull == null || !hull.enabled) return false;
+        if (hull == null || !hull.enabled || !hull.poseReady()) return false;
         if (hull.piloted || hull.mode == HullMode.REBUILDING) return false;
         if (playerNear(hull, HullConfig.simplifiedRadius())) return false;
         int period = HullConfig.networkPeriodTicks();
@@ -773,7 +776,7 @@ public final class ShipHullManager {
             if (!shipSyncEnabled()) return false;
             for (ShipHull hull : ships.values()) {
                 ServerSubLevel sub = hull.subLevel();
-                if (sub != null && throttlePoseSend(sub)) {
+                if (sub != null && hull.poseReady() && throttlePoseSend(sub)) {
                     throttledWorldBoxes.add(hull.worldHullAABB().inflate(2.0));
                 }
             }
@@ -1107,7 +1110,9 @@ public final class ShipHullManager {
 
     private void applyNestedTransforms(ShipHull parent) {
         if (parent.nested.isEmpty()) return;
+        if (parent.subLevel() == null || !parent.poseReady()) return;
         Pose3d parentPose = parent.subLevel().logicalPose();
+        if (parentPose.position() == null || parentPose.orientation() == null) return;
         for (NestedAssembly child : parent.nested) {
             ShipHull childHull = ships.get(child.childId);
             if (childHull == null || childHull.subLevel() == null) continue;
@@ -1115,7 +1120,9 @@ public final class ShipHullManager {
             parentPose.orientation().transform(world);
             world.add(parentPose.position());
             Quaterniond worldRot = new Quaterniond(parentPose.orientation()).mul(child.localRot);
+            if (!childHull.poseReady()) continue;
             Pose3d cp = childHull.subLevel().logicalPose();
+            if (cp.position() == null || cp.orientation() == null) continue;
             cp.position().set(world);
             cp.orientation().set(worldRot);
             childHull.subLevel().updateBoundingBox();
@@ -1144,6 +1151,7 @@ public final class ShipHullManager {
 
         // Test each voxel in ship-local space against world-space blast
         Pose3d pose = sub.logicalPose();
+        if (pose == null || pose.position() == null || pose.orientation() == null || pose.rotationPoint() == null) return 0;
         Vector3d tmp = new Vector3d();
         Vector3d rp = pose.rotationPoint();
         double r2 = radius * radius;

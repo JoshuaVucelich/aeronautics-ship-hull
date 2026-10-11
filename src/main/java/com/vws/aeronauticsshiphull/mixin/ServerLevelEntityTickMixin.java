@@ -5,6 +5,7 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
+import com.vws.aeronauticsshiphull.hull.SableQueries;
 import com.vws.aeronauticsshiphull.hull.ShipTickGate;
 import com.vws.aeronauticsshiphull.profile.HullProfiler;
 
@@ -22,11 +23,15 @@ public abstract class ServerLevelEntityTickMixin {
 
     @Inject(method = "tickNonPassenger", at = @At("HEAD"), cancellable = true)
     private void ash$skipParkedPlotEntities(Entity entity, CallbackInfo ci) {
-        if (entity instanceof Player) return;
-        ServerLevel self = (ServerLevel) (Object) this;
-        if (ShipTickGate.skipEntity(self, entity)) {
-            HullProfiler.ENTITY_TICK_SKIPS.incrementAndGet();
-            ci.cancel();
+        try {
+            if (entity instanceof Player) return;
+            ServerLevel self = (ServerLevel) (Object) this;
+            if (ShipTickGate.skipEntity(self, entity)) {
+                HullProfiler.ENTITY_TICK_SKIPS.incrementAndGet();
+                ci.cancel();
+            }
+        } catch (Throwable t) {
+            SableQueries.failOpen("parked entity tick", t);
         }
     }
 }

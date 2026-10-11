@@ -308,7 +308,11 @@ public final class ShipHull {
 
     /** World hit → ship-local block pos via inverse pose (approximate: translation only + inverse rot). */
     public BlockPos worldToLocal(double wx, double wy, double wz) {
+        if (subLevel == null) return BlockPos.containing(wx, wy, wz);
         Pose3d pose = subLevel.logicalPose();
+        if (pose == null || pose.position() == null || pose.orientation() == null || pose.rotationPoint() == null) {
+            return BlockPos.containing(wx, wy, wz);
+        }
         Vector3d local = new Vector3d(wx, wy, wz).sub(pose.position());
         Quaterniond inv = new Quaterniond(pose.orientation()).conjugate();
         inv.transform(local);
@@ -323,15 +327,33 @@ public final class ShipHull {
         return new AABB(minX, minY, minZ, maxX + 1, maxY + 1, maxZ + 1);
     }
 
+    /**
+     * False while the plot has not produced voxels, or the sublevel pose cannot be read.
+     * Ships log {@code voxels=0} when a player loads the chunk before the plot scan finishes.
+     */
+    public boolean poseReady() {
+        if (!hullValid || voxels.isEmpty() || subLevel == null || subLevel.isRemoved()) return false;
+        Pose3d pose = subLevel.logicalPose();
+        return pose != null && pose.position() != null && pose.orientation() != null && pose.rotationPoint() != null;
+    }
+
     public AABB worldHullAABB() {
+        if (!poseReady()) return EMPTY_WORLD_BOX;
         if (worldBox != null && worldBoxGen == poseGen) return worldBox;
         worldBox = computeWorldHullAABB();
         worldBoxGen = poseGen;
         return worldBox;
     }
 
+    /** Zero-size box. {@code contains} is false, so an unfinished ship does not match entities. */
+    private static final AABB EMPTY_WORLD_BOX = new AABB(0, 0, 0, 0, 0, 0);
+
     private AABB computeWorldHullAABB() {
+        if (subLevel == null) return EMPTY_WORLD_BOX;
         Pose3d pose = subLevel.logicalPose();
+        if (pose == null || pose.position() == null || pose.orientation() == null || pose.rotationPoint() == null) {
+            return EMPTY_WORLD_BOX;
+        }
         AABB local = localHullAABB();
         // Corner transform for oriented hull → world AABB
         double[] xs = {local.minX, local.maxX};

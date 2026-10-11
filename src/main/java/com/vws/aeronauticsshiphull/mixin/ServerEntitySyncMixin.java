@@ -7,6 +7,7 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
+import com.vws.aeronauticsshiphull.hull.SableQueries;
 import com.vws.aeronauticsshiphull.hull.ShipHullManager;
 
 import net.minecraft.server.level.ServerEntity;
@@ -25,7 +26,11 @@ public abstract class ServerEntitySyncMixin {
 
     @Inject(method = "sendChanges", at = @At("HEAD"), cancellable = true)
     private void ash$throttleSend(CallbackInfo ci) {
-        ShipHullManager mgr = ShipHullManager.getOrNull(level);
-        if (mgr != null && mgr.throttleEntitySync(entity)) ci.cancel();
+        try {
+            ShipHullManager mgr = ShipHullManager.getOrNull(level);
+            if (mgr != null && mgr.throttleEntitySync(entity)) ci.cancel();
+        } catch (Throwable t) {
+            SableQueries.failOpen("entity sync", t);
+        }
     }
 }

@@ -21,9 +21,10 @@ public final class CheapIntegrator {
 
     public static boolean step(ShipHull hull, ShipHullManager manager, double dt) {
         ServerSubLevel sub = hull.subLevel();
-        if (sub == null || sub.isRemoved()) return false;
+        if (sub == null || sub.isRemoved() || !hull.poseReady()) return false;
         ServerLevel level = hull.level;
         Pose3d pose = sub.logicalPose();
+        if (pose == null || pose.position() == null || pose.orientation() == null) return false;
 
         // Route seek
         if (!Double.isNaN(hull.routeTarget.x)) {
@@ -68,7 +69,7 @@ public final class CheapIntegrator {
     /** Same lookahead as {@link #step} without integrating: would this hull promote straight back to FULL? */
     public static boolean wouldCollide(ShipHull hull, ShipHullManager manager) {
         ServerSubLevel sub = hull.subLevel();
-        if (sub == null || sub.isRemoved()) return false;
+        if (sub == null || sub.isRemoved() || !hull.poseReady()) return false;
         double dt = 0.05 * HullConfig.cheapPeriodTicks();
         AABB world = hull.worldHullAABB().inflate(HullConfig.collisionLookahead());
         Vector3d look = new Vector3d(hull.linearVel).mul(Math.max(dt, 0.1));

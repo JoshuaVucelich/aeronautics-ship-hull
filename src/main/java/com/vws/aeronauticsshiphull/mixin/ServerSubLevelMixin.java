@@ -7,6 +7,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 import com.llamalad7.mixinextras.injector.v2.WrapWithCondition;
 import com.vws.aeronauticsshiphull.hull.HullMode;
+import com.vws.aeronauticsshiphull.hull.SableQueries;
 import com.vws.aeronauticsshiphull.hull.ShipHull;
 import com.vws.aeronauticsshiphull.hull.ShipHullManager;
 import com.vws.aeronauticsshiphull.profile.HullProfiler;
@@ -44,10 +45,18 @@ public abstract class ServerSubLevelMixin {
     @WrapWithCondition(method = "tick",
             at = @At(value = "INVOKE", target = "Ldev/ryanhcode/sable/sublevel/plot/heat/SubLevelHeatMapManager;tick()V"))
     private boolean ash$heat(SubLevelHeatMapManager heat) {
-        if (!ShipHullManager.contraptionTick()) return true;
-        ServerSubLevel self = (ServerSubLevel) (Object) this;
-        if (!ash$cheap(self)) return true;
-        HullProfiler.HEATMAP_SKIPS.incrementAndGet();
-        return false;
+        try {
+            if (!ShipHullManager.contraptionTick()) return true;
+            ServerSubLevel self = (ServerSubLevel) (Object) this;
+            if (!ash$cheap(self)) return true;
+            ShipHull hull = ShipHullManager.getOrNull(self.getLevel()) == null
+                    ? null : ShipHullManager.getOrNull(self.getLevel()).get(self);
+            if (hull == null || !hull.poseReady()) return true;
+            HullProfiler.HEATMAP_SKIPS.incrementAndGet();
+            return false;
+        } catch (Throwable t) {
+            SableQueries.failOpen("heat map", t);
+            return true;
+        }
     }
 }

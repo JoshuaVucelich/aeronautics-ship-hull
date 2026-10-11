@@ -7,6 +7,7 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
+import com.vws.aeronauticsshiphull.hull.SableQueries;
 import com.vws.aeronauticsshiphull.hull.ShipHullManager;
 import com.vws.aeronauticsshiphull.profile.HullProfiler;
 
@@ -25,13 +26,17 @@ public abstract class RapierContraptionPoseMixin {
 
     @Inject(method = "updateContraptionPose", at = @At("HEAD"), cancellable = true)
     private void ash$skipSettled(KinematicContraption contraption, double partialPhysicsTick, CallbackInfo ci) {
-        if (!contraption.sable$isValid()) return;
-        ShipHullManager mgr = ShipHullManager.getOrNull(level);
-        if (mgr == null) return;
-        var pos = contraption.sable$getPosition();
-        if (mgr.skipContraptionPose(pos.x(), pos.y(), pos.z())) {
-            HullProfiler.CONTRAPTION_POSE_SKIPS.incrementAndGet();
-            ci.cancel();
+        try {
+            ShipHullManager mgr = ShipHullManager.getOrNull(level);
+            if (mgr == null) return;
+            var pos = SableQueries.contraptionPosition(contraption);
+            if (pos == null) return;
+            if (mgr.skipContraptionPose(pos.x(), pos.y(), pos.z())) {
+                HullProfiler.CONTRAPTION_POSE_SKIPS.incrementAndGet();
+                ci.cancel();
+            }
+        } catch (Throwable t) {
+            SableQueries.failOpen("contraption pose upload", t);
         }
     }
 }

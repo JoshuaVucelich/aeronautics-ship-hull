@@ -7,6 +7,7 @@ import org.spongepowered.asm.mixin.injection.At;
 
 import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
+import com.vws.aeronauticsshiphull.hull.SableQueries;
 import com.vws.aeronauticsshiphull.hull.ShipHullManager;
 import com.vws.aeronauticsshiphull.profile.HullProfiler;
 
@@ -31,14 +32,18 @@ public abstract class SubLevelTrackingMixin {
     @WrapOperation(method = "sendMovementUpdates", at = @At(value = "INVOKE",
             target = "Ldev/ryanhcode/sable/companion/math/Pose3d;withinTolerance(Ldev/ryanhcode/sable/companion/math/Pose3d;DD)Z"))
     private boolean ash$throttlePose(Pose3d pose, Pose3d other, double posTol, double rotTol, Operation<Boolean> original) {
-        ShipHullManager mgr = ShipHullManager.getOrNull(level);
-        if (mgr != null) {
-            ServerSubLevel sub = mgr.sublevelForLogicalPose(pose);
-            if (sub != null && mgr.throttlePoseSend(sub)) {
-                if (!sub.getLastNetworkedStopped()) sub.setLastNetworkedStopped(true);
-                HullProfiler.POSE_SEND_SKIPS.incrementAndGet();
-                return true;
+        try {
+            ShipHullManager mgr = ShipHullManager.getOrNull(level);
+            if (mgr != null && pose != null) {
+                ServerSubLevel sub = mgr.sublevelForLogicalPose(pose);
+                if (sub != null && mgr.throttlePoseSend(sub)) {
+                    if (!sub.getLastNetworkedStopped()) sub.setLastNetworkedStopped(true);
+                    HullProfiler.POSE_SEND_SKIPS.incrementAndGet();
+                    return true;
+                }
             }
+        } catch (Throwable t) {
+            SableQueries.failOpen("pose sync", t);
         }
         return original.call(pose, other, posTol, rotTol);
     }

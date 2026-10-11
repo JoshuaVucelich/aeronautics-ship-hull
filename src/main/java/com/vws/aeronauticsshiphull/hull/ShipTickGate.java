@@ -65,7 +65,7 @@ public final class ShipTickGate {
         ShipHullManager mgr = ShipHullManager.getOrNull(level);
         if (mgr == null) return true;
         ShipHull hull = mgr.get(sub);
-        if (hull == null || !hull.enabled || hull.mode != HullMode.PARKED) return true;
+        if (hull == null || !hull.enabled || !hull.poseReady() || hull.mode != HullMode.PARKED) return true;
         if (mgr.isPlayerNear(hull, HullConfig.wakeRadius())) return true;
         int period = HullConfig.blockEntityPeriod();
         if (period <= 1) return true;
@@ -88,7 +88,7 @@ public final class ShipTickGate {
         ShipHullManager mgr = ShipHullManager.getOrNull(level);
         if (mgr == null) return true;
         ShipHull hull = mgr.get(sub);
-        if (hull == null || !hull.enabled || hull.mode != HullMode.PARKED) return true;
+        if (hull == null || !hull.enabled || !hull.poseReady() || hull.mode != HullMode.PARKED) return true;
         if (mgr.isPlayerNear(hull, HullConfig.wakeRadius())) return true;
         if (entities) return false;
         int period = HullConfig.blockEntityPeriod();

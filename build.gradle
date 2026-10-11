@@ -83,17 +83,17 @@ dependencies {
     runtimeOnly("dev.engine-room.flywheel:flywheel-neoforge-${minecraft_version}:${flywheel_version}")
     implementation("com.tterrag.registrate:Registrate:${registrate_version}")
 
-    // Sable 2.0.5 (pinned) — maven.ryanhcode.dev
+    // Sable 2.0.3 (live-server pin) — maven.ryanhcode.dev
     compileOnly("dev.ryanhcode.sable:sable-neoforge-${minecraft_version}:${sable_version}") { transitive = false }
 
-    // Aeronautics 1.3.2 + Simulated 1.3.2 extracted from Modrinth bundled jar (not on public maven at 1.3.2)
+    // Aeronautics 1.3.0 + Simulated 1.3.0 extracted from the Modrinth bundled jar
     def perfLibs = file(findProperty('perfLibsDir') ?: '../create-perf-libs-1.21.1/extracted')
-    compileOnly(files("${perfLibs}/dev.eriksonn.aeronautics.aeronautics-neoforge-1.21.1-1.3.2.jar"))
-    compileOnly(files("${perfLibs}/dev.simulated_team.simulated.simulated-neoforge-1.21.1-1.3.2.jar"))
+    compileOnly(files("${perfLibs}/dev.eriksonn.aeronautics.aeronautics-neoforge-1.21.1-${aeronautics_version}.jar"))
+    compileOnly(files("${perfLibs}/dev.simulated_team.simulated.simulated-neoforge-1.21.1-${simulated_version}.jar"))
 
-    // Sable companion (Pose3d) + Rapier pipeline (mixin targets) extracted from sable jarjar
+    // Sable companion (Pose3d) + Rapier pipeline (mixin targets) extracted from the Sable 2.0.3 jarjar
     compileOnly(files("${perfLibs}/sable-companion-common-1.21.1-1.6.0.jar"))
-    compileOnly(files("${perfLibs}/sable-sable_rapier-1.21.1-2.0.5.jar"))
+    compileOnly(files("${perfLibs}/sable-sable_rapier-1.21.1-${sable_version}.jar"))
 }
 
 
