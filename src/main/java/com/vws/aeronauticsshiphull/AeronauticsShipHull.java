@@ -7,7 +7,6 @@ import com.vws.aeronauticsshiphull.api.ShipCadence;
 import com.vws.aeronauticsshiphull.command.ShipHullCommand;
 import com.vws.aeronauticsshiphull.config.HullConfig;
 import com.vws.aeronauticsshiphull.hull.ShipHullManager;
-import com.vws.aeronauticsshiphull.mixin.MixinProbes;
 
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
