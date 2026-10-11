@@ -10,7 +10,7 @@ Parked mode is not written to the world. A ship that registers does so in FULL.
 
 | Scenario | What we do |
 | --- | --- |
-| Chunk unload, or only half the group loaded | Removing a member wakes the rest with `memberUnloaded` before the ship is dropped from the registry. Adding a member wakes a group that already has anyone parked (`memberLoaded`). An unreadable box still links to every ship, so a half-loaded partner cannot stay frozen against a live one. |
+| Chunk unload, or only half the group loaded | Removing a member wakes the rest with `memberUnloaded` before the ship is dropped from the registry. Adding a member wakes a group that already has anyone parked (`memberLoaded`). A built hull with an unreadable box still links to every ship, so a broken partner cannot stay frozen against a live one. A ship that has not built a hull yet does not, so assembling one ship does not wake every parked group on the server. |
 | Server crash or kill mid-park | Parked mode is not loaded. Startup logs that ships register in FULL. Each added body gets `pipeline.wakeUp`, so a Sable-saved sleep does not leave the body frozen. |
 | Player logs in next to a parked group | Login wakes a parked or cheap ship whose voxel box, or logical pose when the voxels are not ready, contains the player within `wakeRadius`. An unreadable parked pose wakes the group as `unreadablePose`. |
 | Group spans a chunk or region border | Linking uses the world bounding box, not the center, and a spatial hash of 32-block cells. A box that crosses cells is inserted into each cell it touches. |

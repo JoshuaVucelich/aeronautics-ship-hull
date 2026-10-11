@@ -154,7 +154,11 @@ public final class ParkGroups {
         for (int i = 0; i < n; i++) {
             BoundingBox3dc box = sableBox(live.get(i));
             if (!usable(box)) {
-                linkAll.add(i);
+                // A hull that has not been built yet has no box. Linking it to every ship wakes the
+                // whole server on assemble. A built hull with an unreadable box still links to all,
+                // so a broken partner cannot stay frozen alone.
+                ShipHull hull = live.get(i);
+                if (!hull.voxels.isEmpty() || hull.hullValid) linkAll.add(i);
                 continue;
             }
             int x0 = cell(box.minX() - linkBlocks);
