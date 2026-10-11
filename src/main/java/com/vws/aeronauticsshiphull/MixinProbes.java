@@ -21,6 +21,10 @@ public final class MixinProbes {
         APPLIED.add(dot >= 0 ? mixinClassName.substring(dot + 1) : mixinClassName);
     }
 
+    public static boolean saw(String name) {
+        return name != null && APPLIED.contains(name);
+    }
+
     public static List<String> missing(String... names) {
         List<String> out = new ArrayList<>();
         for (String name : names) {

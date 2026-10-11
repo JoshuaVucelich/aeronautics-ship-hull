@@ -52,23 +52,43 @@ public class AeronauticsShipHull {
                 MOD_ID, ShipCadence.bridgeInfo());
     }
 
-    private static final String[] CRITICAL_MIXINS = {
-            "SubLevelPhysicsSystemMixin",
-            "SubLevelPhysicsStepMixin",
-            "ServerSubLevelMixin",
-            "RapierPipelineHooksMixin",
-            "RapierConstraintLinkMixin",
-            "RapierConstraintRemoveMixin"
+    /** Target class, then the mixin that must have applied to it. */
+    private static final String[][] CRITICAL_MIXINS = {
+            {"dev.ryanhcode.sable.sublevel.system.SubLevelPhysicsSystem", "SubLevelPhysicsSystemMixin"},
+            {"dev.ryanhcode.sable.sublevel.system.SubLevelPhysicsSystem", "SubLevelPhysicsStepMixin"},
+            {"dev.ryanhcode.sable.sublevel.ServerSubLevel", "ServerSubLevelMixin"},
+            {"dev.ryanhcode.sable.physics.impl.rapier.RapierPhysicsPipeline", "RapierPipelineHooksMixin"},
+            {"dev.ryanhcode.sable.physics.impl.rapier.RapierPhysicsPipeline", "RapierConstraintLinkMixin"},
+            {"dev.ryanhcode.sable.physics.impl.rapier.constraint.RapierConstraintHandle", "RapierConstraintRemoveMixin"}
     };
 
     private void onServerStarting(ServerStartingEvent event) {
-        var missing = MixinProbes.missing(CRITICAL_MIXINS);
+        var missing = missingCriticalMixins();
         if (!missing.isEmpty()) {
             ShipHullManager.safeModeOverride = Boolean.TRUE;
             LOGGER.error("[shiphull] anomaly: critical mixin targets missing {}; safe-mode is on. Parking stays off.", missing);
         }
         LOGGER.info("{} ready; hull mode {} safeMode={} (parked state is not saved; ships register in FULL)",
                 MOD_ID, HullConfig.enabled() ? "ENABLED" : "disabled", ShipHullManager.safeMode());
+    }
+
+    /**
+     * Load each target first. Mixin applies when the class loads, so a joint handle that nobody
+     * has touched yet is not a failed mixin.
+     */
+    private static java.util.List<String> missingCriticalMixins() {
+        java.util.ArrayList<String> missing = new java.util.ArrayList<>();
+        ClassLoader loader = AeronauticsShipHull.class.getClassLoader();
+        for (String[] pair : CRITICAL_MIXINS) {
+            try {
+                Class.forName(pair[0], false, loader);
+            } catch (Throwable t) {
+                missing.add(pair[1] + " (target " + pair[0] + ")");
+                continue;
+            }
+            if (!MixinProbes.saw(pair[1])) missing.add(pair[1]);
+        }
+        return missing;
     }
 
     private void onPlayerLogin(PlayerEvent.PlayerLoggedInEvent event) {
