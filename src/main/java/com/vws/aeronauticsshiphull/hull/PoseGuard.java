@@ -29,11 +29,14 @@ public final class PoseGuard {
     /**
      * An external pipeline teleport is a real pose. Recording it as last-good stops the guard from
      * pulling a /tp or a Sable center-of-mass correction back to the pre-teleport position.
+     * A target already inside the remove-bounds margin is not saved, so the previous last-good pose
+     * can still pull the ship back out.
      */
     public static void acceptTeleport(ShipHull hull, Vector3dc pos, Quaterniondc rot) {
         if (hull == null || pos == null || rot == null) return;
         if (!Double.isFinite(pos.x()) || !Double.isFinite(pos.y()) || !Double.isFinite(pos.z())) return;
         if (!Double.isFinite(rot.x()) || !Double.isFinite(rot.y()) || !Double.isFinite(rot.z()) || !Double.isFinite(rot.w())) return;
+        if (insideRemoveMargin(pos.y())) return;
         hull.lastGoodPos.set(pos);
         hull.lastGoodRot.set(rot);
         hull.hasLastGoodPose = true;
@@ -90,6 +93,14 @@ public final class PoseGuard {
         if (jumped && fast) return "jump";
         if (approachingRemove(sub, pos.y())) return "remove-bounds";
         return null;
+    }
+
+    /** True when {@code y} is within {@code poseGuardMargin} of Sable's sub-level remove bounds. */
+    private static boolean insideRemoveMargin(double y) {
+        double min = SableConfig.SUB_LEVEL_REMOVE_MIN.getAsDouble();
+        double max = SableConfig.SUB_LEVEL_REMOVE_MAX.getAsDouble();
+        double margin = HullConfig.poseGuardMargin();
+        return y < min + margin || y > max - margin;
     }
 
     private static boolean approachingRemove(ServerSubLevel sub, double y) {

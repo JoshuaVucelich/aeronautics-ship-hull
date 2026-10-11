@@ -113,8 +113,9 @@ public final class HullConfig {
                 + "Speed on its own does not restore, and a jump on its own does not restore.")
                 .defineInRange("absurdSpeed", 250.0, 1.0, 100000.0);
         ABSURD_ANGULAR = b.comment("Restore the last good pose when angular speed (rad/s) exceeds this. "
-                + "A 256 RPM bearing is about 26.8 rad/s, so the default sits above that.")
-                .defineInRange("absurdAngular", 40.0, 0.0, 100000.0);
+                + "A 256 RPM bearing is about 26.8 rad/s. Two of those stacked reach about 53.6 rad/s, "
+                + "so the default sits above that.")
+                .defineInRange("absurdAngular", 80.0, 0.0, 100000.0);
         POSE_GUARD_MARGIN = b.comment("Restore the last good pose when the ship box comes within this many blocks of Sable's remove bounds. "
                 + "Sable 2.0.3 defaults are sub_level_remove_min=-10000 and sub_level_remove_max=100000 "
                 + "(removal when minY is below the min or maxY is above the max). "

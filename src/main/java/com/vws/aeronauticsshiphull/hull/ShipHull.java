@@ -77,6 +77,10 @@ public final class ShipHull {
     public int emptyHullScans;
     /** Loaded plot chunks at the last hull scan. {@code -1} until a scan records them. */
     public int scannedChunkCount = -1;
+    /** Latest loaded-chunk count that has not been scanned yet. */
+    public int pendingChunkCount = Integer.MIN_VALUE;
+    /** Game time when {@link #pendingChunkCount} last changed. */
+    public long chunkCountStableSince = Long.MIN_VALUE;
     /** True once a scan has walked the plot box stored below. */
     public boolean scannedPlotBox;
     public int scannedPlotMinX, scannedPlotMinY, scannedPlotMinZ;

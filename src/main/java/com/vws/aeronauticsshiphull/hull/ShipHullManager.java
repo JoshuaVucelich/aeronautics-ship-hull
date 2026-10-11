@@ -918,15 +918,20 @@ public final class ShipHullManager {
         return ids.toString();
     }
 
+    /** A flickering plot-edge chunk must hold this long before it is worth scanning again. */
+    private static final long CHUNK_RESCAN_HOLD_TICKS = 40L;
+
     /**
      * Rebuild a hull that was registered before its plot or mass existed, and again when more of
      * the plot is loaded than the last scan saw. A non-empty voxel set is not enough: a partial
-     * scan used to stop here and leave the far end of a long hull out of the group.
+     * scan used to stop here and leave the far end of a long hull out of the group. A chunk count
+     * that keeps changing at the plot edge waits until it holds still, so the scan does not repeat
+     * on every load and unload.
      */
     private void ensureHull(ShipHull hull) {
         if (level.getGameTime() % 10L != 0L) return;
         int chunks = loadedChunkCount(hull);
-        boolean chunkChanged = chunks >= 0 && chunks != hull.scannedChunkCount;
+        boolean chunkChanged = chunks >= 0 && chunkCountHeld(hull, chunks) && chunks != hull.scannedChunkCount;
         boolean plotChanged = plotBoxChanged(hull);
         boolean smaller = hullSmallerThanPlot(hull) && !plotBoxMatchesScan(hull);
         boolean empty = hull.voxels.isEmpty() && !hull.hullScanSettled;
@@ -946,6 +951,17 @@ public final class ShipHullManager {
             hull.emptyHullScans++;
             if (hull.emptyHullScans >= 5) hull.hullScanSettled = true;
         }
+    }
+
+    /** True once {@code chunks} has been the pending count for {@link #CHUNK_RESCAN_HOLD_TICKS}. */
+    private boolean chunkCountHeld(ShipHull hull, int chunks) {
+        long now = level.getGameTime();
+        if (chunks != hull.pendingChunkCount) {
+            hull.pendingChunkCount = chunks;
+            hull.chunkCountStableSince = now;
+            return false;
+        }
+        return now - hull.chunkCountStableSince >= CHUNK_RESCAN_HOLD_TICKS;
     }
 
     private int loadedChunkCount(ShipHull hull) {
