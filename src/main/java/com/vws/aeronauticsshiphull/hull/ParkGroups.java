@@ -13,10 +13,9 @@ import com.vws.aeronauticsshiphull.nested.NestedAssembly;
 
 import dev.ryanhcode.sable.api.physics.PhysicsPipelineBody;
 import dev.ryanhcode.sable.api.sublevel.KinematicContraption;
-import dev.ryanhcode.sable.companion.math.Pose3d;
+import dev.ryanhcode.sable.companion.math.BoundingBox3dc;
 import dev.ryanhcode.sable.sublevel.ServerSubLevel;
 import dev.ryanhcode.sable.sublevel.plot.ServerLevelPlot;
-import net.minecraft.world.phys.AABB;
 
 /**
  * Connectivity of ships that must park and wake together: touching hulls, nested assemblies,
@@ -134,39 +133,42 @@ public final class ParkGroups {
         return UNKNOWN;
     }
 
+    /**
+     * Touching or nearby in the world, using Sable's world bounding box. A grabber on the end of a
+     * long hull is far from the other ship's center and still linked. An unreadable box links too,
+     * so one partner cannot freeze on its own.
+     */
     private static boolean near(ShipHull a, ShipHull b, double linkBlocks) {
-        boolean poseA = hasPose(a);
-        boolean poseB = hasPose(b);
-        if (!poseA && !poseB) return true;
-        if (a.poseReady() && b.poseReady()) {
-            return a.worldHullAABB().inflate(linkBlocks).intersects(b.worldHullAABB());
-        }
-        if (a.poseReady() && poseB && containsPose(a.worldHullAABB().inflate(linkBlocks + 8.0), b)) return true;
-        if (b.poseReady() && poseA && containsPose(b.worldHullAABB().inflate(linkBlocks + 8.0), a)) return true;
-        if (poseA && poseB) {
-            var pa = a.subLevel().logicalPose().position();
-            var pb = b.subLevel().logicalPose().position();
-            double dx = pa.x() - pb.x();
-            double dy = pa.y() - pb.y();
-            double dz = pa.z() - pb.z();
-            double reach = linkBlocks + 16.0;
-            return dx * dx + dy * dy + dz * dz <= reach * reach;
-        }
-        return true;
+        BoundingBox3dc boxA = sableBox(a);
+        BoundingBox3dc boxB = sableBox(b);
+        if (!usable(boxA) || !usable(boxB)) return true;
+        return !separated(boxA, boxB, linkBlocks);
     }
 
-    private static boolean containsPose(AABB box, ShipHull hull) {
-        var p = hull.subLevel().logicalPose().position();
-        return box.contains(p.x(), p.y(), p.z());
-    }
-
-    private static boolean hasPose(ShipHull hull) {
+    private static BoundingBox3dc sableBox(ShipHull hull) {
         ServerSubLevel sub = hull.subLevel();
-        if (sub == null || sub.isRemoved()) return false;
-        Pose3d pose = sub.logicalPose();
-        if (pose == null || pose.position() == null) return false;
-        var p = pose.position();
-        return Double.isFinite(p.x()) && Double.isFinite(p.y()) && Double.isFinite(p.z());
+        if (sub == null || sub.isRemoved()) return null;
+        try {
+            return sub.boundingBox();
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
+    private static boolean usable(BoundingBox3dc box) {
+        if (box == null) return false;
+        if (!Double.isFinite(box.minX()) || !Double.isFinite(box.minY()) || !Double.isFinite(box.minZ())
+                || !Double.isFinite(box.maxX()) || !Double.isFinite(box.maxY()) || !Double.isFinite(box.maxZ())) {
+            return false;
+        }
+        if (box.maxX() < box.minX() || box.maxY() < box.minY() || box.maxZ() < box.minZ()) return false;
+        return box.volume() > 0.0;
+    }
+
+    private static boolean separated(BoundingBox3dc a, BoundingBox3dc b, double gap) {
+        return a.maxX() + gap < b.minX() || b.maxX() + gap < a.minX()
+                || a.maxY() + gap < b.minY() || b.maxY() + gap < a.minY()
+                || a.maxZ() + gap < b.minZ() || b.maxZ() + gap < a.minZ();
     }
 
     private static int find(int[] parent, int i) {

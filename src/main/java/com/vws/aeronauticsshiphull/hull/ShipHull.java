@@ -75,6 +75,12 @@ public final class ShipHull {
     /** Plot scan found nothing often enough that a truly empty ship can stop retrying. */
     public boolean hullScanSettled;
     public int emptyHullScans;
+    /** Loaded plot chunks at the last hull scan. {@code -1} until a scan records them. */
+    public int scannedChunkCount = -1;
+    /** True once a scan has walked the plot box stored below. */
+    public boolean scannedPlotBox;
+    public int scannedPlotMinX, scannedPlotMinY, scannedPlotMinZ;
+    public int scannedPlotMaxX, scannedPlotMaxY, scannedPlotMaxZ;
     public boolean hullBuiltLogged;
     /** Last pose that stayed inside Sable's keep range. */
     public final Vector3d lastGoodPos = new Vector3d();

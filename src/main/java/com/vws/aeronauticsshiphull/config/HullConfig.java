@@ -28,6 +28,7 @@ public final class HullConfig {
     private static final ModConfigSpec.DoubleValue GROUP_LINK_BLOCKS;
     private static final ModConfigSpec.DoubleValue ABSURD_JUMP_BLOCKS;
     private static final ModConfigSpec.DoubleValue ABSURD_SPEED;
+    private static final ModConfigSpec.DoubleValue ABSURD_ANGULAR;
     private static final ModConfigSpec.DoubleValue POSE_GUARD_MARGIN;
 
     // Phase 7 — in-motion cost
@@ -105,11 +106,19 @@ public final class HullConfig {
         GROUP_LINK_BLOCKS = b.comment("Ships whose hulls are at most this many blocks apart park and wake as one group. "
                 + "Joints, nested assemblies, and contraptions link ships regardless of distance.")
                 .defineInRange("groupLinkBlocks", 3.0, 0.0, 64.0);
-        ABSURD_JUMP_BLOCKS = b.comment("Restore the last good pose when a ship moves farther than this in one tick")
+        ABSURD_JUMP_BLOCKS = b.comment("With absurdSpeed, restore the last good pose when a ship also moves farther than this in one tick. "
+                + "A jump on its own is a teleport and is kept. A high speed on its own is kept until the ship has also jumped this far.")
                 .defineInRange("absurdJumpBlocks", 64.0, 1.0, 10000.0);
-        ABSURD_SPEED = b.comment("Restore the last good pose when linear speed (blocks/s) exceeds this")
+        ABSURD_SPEED = b.comment("With absurdJumpBlocks, restore the last good pose when linear speed (blocks/s) also exceeds this. "
+                + "Speed on its own does not restore, and a jump on its own does not restore.")
                 .defineInRange("absurdSpeed", 250.0, 1.0, 100000.0);
-        POSE_GUARD_MARGIN = b.comment("Restore the last good pose when a ship comes within this many blocks of Sable's sub-level remove bounds")
+        ABSURD_ANGULAR = b.comment("Restore the last good pose when angular speed (rad/s) exceeds this. "
+                + "A 256 RPM bearing is about 26.8 rad/s, so the default sits above that.")
+                .defineInRange("absurdAngular", 40.0, 0.0, 100000.0);
+        POSE_GUARD_MARGIN = b.comment("Restore the last good pose when the ship box comes within this many blocks of Sable's remove bounds. "
+                + "Sable 2.0.3 defaults are sub_level_remove_min=-10000 and sub_level_remove_max=100000 "
+                + "(removal when minY is below the min or maxY is above the max). "
+                + "512 restores below -9488 or above 99488, which is still inside the range Sable keeps.")
                 .defineInRange("poseGuardMargin", 512.0, 0.0, 100000.0);
         b.pop();
 
@@ -202,6 +211,7 @@ public final class HullConfig {
     public static double groupLinkBlocks() { return GROUP_LINK_BLOCKS.get(); }
     public static double absurdJumpBlocks() { return ABSURD_JUMP_BLOCKS.get(); }
     public static double absurdSpeed() { return ABSURD_SPEED.get(); }
+    public static double absurdAngular() { return ABSURD_ANGULAR.get(); }
     public static double poseGuardMargin() { return POSE_GUARD_MARGIN.get(); }
 
     public static boolean phase7() { return PHASE7_ENABLED.get(); }

@@ -228,6 +228,7 @@ public final class ShipHullCommand {
             c.getSource().sendSuccess(() -> Component.literal("no ships"), false);
             return 1;
         }
+        m.refreshGroupsForList();
         for (ShipHull h : m.all()) {
             var pose = h.subLevel() != null ? h.subLevel().logicalPose() : null;
             var pp = pose == null ? null : pose.position();
@@ -235,7 +236,7 @@ public final class ShipHullCommand {
                     h.id, h.mode, h.piloted, h.mode.usesRapier(), h.voxels.size(), h.interactive.size(),
                     h.cheapSteps, h.rapierSteps, h.nested.size(), h.stillTicks, h.lastWakeReason,
                     pp == null ? "-" : String.format("%.4f,%.4f,%.4f", pp.x, pp.y, pp.z),
-                    m.groupSize(h));
+                    m.cachedGroupSize(h));
             c.getSource().sendSuccess(() -> Component.literal(line), false);
         }
         return m.all().size();

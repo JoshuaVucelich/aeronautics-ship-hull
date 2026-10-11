@@ -1,7 +1,9 @@
 package com.vws.aeronauticsshiphull.hull;
 
 import org.joml.Quaterniond;
+import org.joml.Quaterniondc;
 import org.joml.Vector3d;
+import org.joml.Vector3dc;
 import org.slf4j.Logger;
 
 import com.mojang.logging.LogUtils;
@@ -21,9 +23,23 @@ import dev.ryanhcode.sable.sublevel.system.SubLevelPhysicsSystem;
  */
 public final class PoseGuard {
     private static final Logger LOGGER = LogUtils.getLogger();
-    private static final double ABSURD_ANGULAR = 20.0;
 
     private PoseGuard() {}
+
+    /**
+     * An external pipeline teleport is a real pose. Recording it as last-good stops the guard from
+     * pulling a /tp or a Sable center-of-mass correction back to the pre-teleport position.
+     */
+    public static void acceptTeleport(ShipHull hull, Vector3dc pos, Quaterniondc rot) {
+        if (hull == null || pos == null || rot == null) return;
+        if (!Double.isFinite(pos.x()) || !Double.isFinite(pos.y()) || !Double.isFinite(pos.z())) return;
+        if (!Double.isFinite(rot.x()) || !Double.isFinite(rot.y()) || !Double.isFinite(rot.z()) || !Double.isFinite(rot.w())) return;
+        hull.lastGoodPos.set(pos);
+        hull.lastGoodRot.set(rot);
+        hull.hasLastGoodPose = true;
+        hull.poseGuardStableTicks = 0;
+        hull.poseGuardLogged = false;
+    }
 
     public static void beforeTick(ServerSubLevel sub) {
         try {
@@ -68,9 +84,10 @@ public final class PoseGuard {
                 || !finite(sub.latestLinearVelocity) || !finite(sub.latestAngularVelocity)) {
             return "non-finite";
         }
-        if (sub.latestLinearVelocity.length() > HullConfig.absurdSpeed()) return "speed";
-        if (sub.latestAngularVelocity.length() > ABSURD_ANGULAR) return "angular";
-        if (hull.hasLastGoodPose && hull.lastGoodPos.distance(pos) > HullConfig.absurdJumpBlocks()) return "jump";
+        if (sub.latestAngularVelocity.length() > HullConfig.absurdAngular()) return "angular";
+        boolean jumped = hull.hasLastGoodPose && hull.lastGoodPos.distance(pos) > HullConfig.absurdJumpBlocks();
+        boolean fast = sub.latestLinearVelocity.length() > HullConfig.absurdSpeed();
+        if (jumped && fast) return "jump";
         if (approachingRemove(sub, pos.y())) return "remove-bounds";
         return null;
     }
@@ -97,22 +114,10 @@ public final class PoseGuard {
         Pose3d pose = sub.logicalPose();
         if (pose == null) return;
         if (pose.position() == null) return;
-        double min = SableConfig.SUB_LEVEL_REMOVE_MIN.getAsDouble();
-        double max = SableConfig.SUB_LEVEL_REMOVE_MAX.getAsDouble();
-        double margin = HullConfig.poseGuardMargin();
-        double lo = min + margin;
-        double hi = max - margin;
-        if (hull.hasLastGoodPose) {
-            pose.position().set(hull.lastGoodPos);
-            if (pose.orientation() != null) pose.orientation().set(hull.lastGoodRot);
-        } else {
-            if (!finite(pose.position())) pose.position().set(0.0, 64.0, 0.0);
-            double y = pose.position().y();
-            if (y < lo || y > hi || !Double.isFinite(y)) pose.position().y = Math.min(hi, Math.max(lo, Double.isFinite(y) ? y : 64.0));
-            if (pose.orientation() == null || !finite(pose.orientation())) {
-                if (pose.orientation() != null) pose.orientation().identity();
-            }
-        }
+        // No saved pose yet: leave the ship where it is.
+        if (!hull.hasLastGoodPose) return;
+        pose.position().set(hull.lastGoodPos);
+        if (pose.orientation() != null) pose.orientation().set(hull.lastGoodRot);
         sub.latestLinearVelocity.zero();
         sub.latestAngularVelocity.zero();
         hull.linearVel.zero();

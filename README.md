@@ -2,7 +2,7 @@
 
 NeoForge mod for Minecraft 1.21.1. Server-side ship hull physics for Create ships running on Aeronautics and Sable.
 
-This tree is `1.0.0-phase8-grouppark.2`. Mod id `aeronautics_ship_hull`. License [CC0 1.0](LICENSE).
+This tree is `1.0.0-phase8-grouppark.3`. Mod id `aeronautics_ship_hull`. License [CC0 1.0](LICENSE).
 
 Pinned versions:
 
@@ -19,7 +19,7 @@ The jar stays separate from `create_factory_graph`, so a Create update does not 
 Each Sable `ServerSubLevel` is one rigid body, a sparse voxel list, and interactive cells. A cell is a chest, seat, bearing, engine, or other block. Physics is never per block. A piloted ship stays one body.
 
 - **CHEAP.** Unpiloted, and nothing is about to hit it. A hull AABB step runs outside Rapier, every 2 ticks (10 Hz) by default. After 40 quiet ticks the ship leaves full Rapier. Phase 5 soft-sleeps it by clearing Rapier local bounds so the colliders are off. The body stays in the scene. `remove()` panics the Rapier natives, so the mod never removes bodies.
-- **PARKED.** Phase 6. Unpiloted, at or under 0.05 blocks/s for 60 ticks, and no player within 16 blocks. A ship resting on terrain or another ship keeps its colliders. An airborne parked ship has colliders off and is pinned so gravity does not drop it. Parked ships wake if you pilot them, apply an impulse, change 8 or more blocks in one tick, come within 16 blocks, or bring a moving ship close. A Sable center-of-mass teleport is copied onto the parked pose and does not count as a wake.
+- **PARKED.** Phase 6. Unpiloted, at or under 0.05 blocks/s for 60 ticks, and no player within 16 blocks. A ship resting on terrain or another ship keeps its colliders. An airborne parked ship has colliders off and is pinned so gravity does not drop it. Parked ships wake if you pilot them, apply an impulse, change 8 or more blocks in one tick, come within 16 blocks, or bring a moving ship close. A Sable center-of-mass teleport is copied onto the parked pose and does not count as a wake. Parked mode is not written to the world. After a reload every ship starts in FULL.
 - **FULL.** One Rapier body. Used while piloted, when the hull is within 4 blocks of a solid, or when a player is nearby.
 - **REBUILDING.** Full Rapier for 60 ticks after an explosion or a connectivity split. An explosion deletes voxels inside the blast, rebuilds the hull, and enters this mode. If the voxels fall into more than one connected piece, the largest piece stays on the ship and the others are stored as pending splits. It does not spawn a new sublevel, and it does not go back to per-block ticking.
 

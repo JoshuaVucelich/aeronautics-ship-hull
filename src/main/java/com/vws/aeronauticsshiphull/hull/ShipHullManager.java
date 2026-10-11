@@ -390,13 +390,18 @@ public final class ShipHullManager {
         }
     }
 
-    /** Pipeline hook: external teleport of a parked body becomes its new parked pose. */
+    /**
+     * Pipeline hook: an external teleport is a real pose. A parked body adopts it and stays parked.
+     * Every ship resets last-good so a /tp farther than the jump cap is not pulled back.
+     */
     public void adoptParkedPose(ServerSubLevel sub, org.joml.Vector3dc pos, org.joml.Quaterniondc rot) {
         ShipHull h = ships.get(sub.getUniqueId());
-        if (h != null && h.mode == HullMode.PARKED) {
+        if (h == null) return;
+        if (h.mode == HullMode.PARKED) {
             h.parkedPos.set(pos);
             h.parkedRot.set(rot);
         }
+        PoseGuard.acceptTeleport(h, pos, rot);
     }
 
     /** Defer a voxel collider update for a ship whose colliders are off. Returns true if deferred. */
@@ -607,6 +612,10 @@ public final class ShipHullManager {
                 LOGGER.warn("[shiphull] refused to park {}; group member {} has no pose", hull.id, member.id);
                 return 0;
             }
+            if (!built(member)) {
+                LOGGER.warn("[shiphull] refused to park {}; group member {} is unbuilt", hull.id, member.id);
+                return 0;
+            }
         }
         parkGroup(group.members, gameTime);
         return group.members.size();
@@ -622,6 +631,15 @@ public final class ShipHullManager {
 
     public int groupSize(ShipHull hull) {
         refreshGroups();
+        return groupOf(hull).members.size();
+    }
+
+    /** One rebuild for {@code /shiphull list}. {@link #cachedGroupSize} reads that result. */
+    public void refreshGroupsForList() {
+        refreshGroups();
+    }
+
+    public int cachedGroupSize(ShipHull hull) {
         return groupOf(hull).members.size();
     }
 
@@ -649,32 +667,65 @@ public final class ShipHullManager {
 
     /** Freeze or wake each connected group in this tick. Never leave a parked body tied to a live one. */
     private void updateGroups(long gameTime) {
-        for (ParkGroups.Group group : groupsThisTick) {
-            if (group.members.isEmpty()) continue;
-            String why = wakeWhy(group);
-            boolean anyParked = false;
-            for (ShipHull member : group.members) {
-                if (member.mode == HullMode.PARKED) anyParked = true;
+        try {
+            for (ParkGroups.Group group : groupsThisTick) {
+                if (group.members.isEmpty()) continue;
+                String why = wakeWhy(group);
+                boolean anyParked = false;
+                for (ShipHull member : group.members) {
+                    if (member.mode == HullMode.PARKED) anyParked = true;
+                }
+                if (!HullConfig.parkEnabled() && anyParked) {
+                    wakeGroup(group.members, "parkDisabled", gameTime);
+                    continue;
+                }
+                if (why != null) {
+                    wakeGroup(group.members, why, gameTime);
+                    continue;
+                }
+                if (anyParked && !group.parkEligible) {
+                    wakeGroup(group.members, "unmappedJoint", gameTime);
+                    continue;
+                }
+                if (anyParked && anyUnbuilt(group)) {
+                    wakeGroup(group.members, "unbuilt", gameTime);
+                    continue;
+                }
+                // A joiner that is still moving must not be frozen mid-motion. Parked members can
+                // leak a little velocity after the pin; that leak is not a wake.
+                if (anyParked && movingJoiner(group)) {
+                    wakeGroup(group.members, "movingJoiner", gameTime);
+                    continue;
+                }
+                if (anyParked) {
+                    parkGroup(group.members, gameTime);
+                    continue;
+                }
+                if (HullConfig.parkEnabled() && canPark(group) && stillLongEnough(group)) {
+                    parkGroup(group.members, gameTime);
+                }
             }
-            if (!HullConfig.parkEnabled() && anyParked) {
-                wakeGroup(group.members, "parkDisabled", gameTime);
-                continue;
-            }
-            if (why != null) {
-                wakeGroup(group.members, why, gameTime);
-                continue;
-            }
-            if (anyParked && !group.parkEligible) {
-                wakeGroup(group.members, "unmappedJoint", gameTime);
-                continue;
-            }
-            // A velocity leak after the pin is not a wake. Keep the whole group frozen together.
-            if (anyParked) {
-                parkGroup(group.members, gameTime);
-                continue;
-            }
-            if (HullConfig.parkEnabled() && canPark(group) && stillLongEnough(group)) {
-                parkGroup(group.members, gameTime);
+        } catch (Throwable t) {
+            LOGGER.warn("[shiphull] group update failed, waking parked ships: {}", t.toString());
+            wakeAllOnError(gameTime);
+        }
+    }
+
+    private void wakeAllOnError(long gameTime) {
+        List<ShipHull> waking = new ArrayList<>();
+        for (ShipHull hull : ships.values()) {
+            if (hull.mode == HullMode.PARKED || hull.mode == HullMode.CHEAP) waking.add(hull);
+        }
+        try {
+            if (!waking.isEmpty()) wakeGroup(waking, "groupError", gameTime);
+        } catch (Throwable nested) {
+            LOGGER.warn("[shiphull] wake after group error failed: {}", nested.toString());
+            for (ShipHull hull : waking) {
+                try {
+                    wake(hull, "groupError", gameTime);
+                } catch (Throwable ignored) {
+                    // The next tick tries again.
+                }
             }
         }
     }
@@ -696,10 +747,31 @@ public final class ShipHullManager {
     private boolean canPark(ParkGroups.Group group) {
         if (!group.parkEligible) return false;
         for (ShipHull member : group.members) {
+            if (!built(member)) return false;
             if (!isStill(member)) return false;
             if (!readablePose(member)) return false;
         }
         return true;
+    }
+
+    private static boolean built(ShipHull member) {
+        return member.poseReady() && member.hullValid;
+    }
+
+    private boolean anyUnbuilt(ParkGroups.Group group) {
+        for (ShipHull member : group.members) {
+            if (!built(member)) return true;
+        }
+        return false;
+    }
+
+    /** True when a ship that is not already parked is still moving. */
+    private boolean movingJoiner(ParkGroups.Group group) {
+        for (ShipHull member : group.members) {
+            if (member.mode == HullMode.PARKED) continue;
+            if (!isStill(member)) return true;
+        }
+        return false;
     }
 
     private boolean stillLongEnough(ParkGroups.Group group) {
@@ -776,7 +848,7 @@ public final class ShipHullManager {
         List<ShipHull> live = new ArrayList<>();
         for (ShipHull member : members) {
             if (member.subLevel() == null || member.subLevel().isRemoved()) continue;
-            if (!readablePose(member)) return;
+            if (!readablePose(member) || !built(member)) return;
             live.add(member);
         }
         if (live.isEmpty()) return;
@@ -846,12 +918,23 @@ public final class ShipHullManager {
         return ids.toString();
     }
 
-    /** Rebuild a hull that was registered before its plot or mass existed. */
+    /**
+     * Rebuild a hull that was registered before its plot or mass existed, and again when more of
+     * the plot is loaded than the last scan saw. A non-empty voxel set is not enough: a partial
+     * scan used to stop here and leave the far end of a long hull out of the group.
+     */
     private void ensureHull(ShipHull hull) {
-        if (!hull.voxels.isEmpty() || hull.hullScanSettled) return;
         if (level.getGameTime() % 10L != 0L) return;
+        int chunks = loadedChunkCount(hull);
+        boolean chunkChanged = chunks >= 0 && chunks != hull.scannedChunkCount;
+        boolean plotChanged = plotBoxChanged(hull);
+        boolean smaller = hullSmallerThanPlot(hull) && !plotBoxMatchesScan(hull);
+        boolean empty = hull.voxels.isEmpty() && !hull.hullScanSettled;
+        if (chunkChanged || plotChanged) hull.hullScanSettled = false;
+        if (!empty && !chunkChanged && !plotChanged && !smaller) return;
         if (!scanReady(hull)) return;
         hull.rebuildFromPlot();
+        rememberScan(hull, chunks);
         if (!hull.voxels.isEmpty()) {
             if (!hull.hullBuiltLogged) {
                 hull.hullBuiltLogged = true;
@@ -862,6 +945,69 @@ public final class ShipHullManager {
         if (plotLoaded(hull)) {
             hull.emptyHullScans++;
             if (hull.emptyHullScans >= 5) hull.hullScanSettled = true;
+        }
+    }
+
+    private int loadedChunkCount(ShipHull hull) {
+        try {
+            var plot = hull.subLevel().getPlot();
+            if (plot == null) return -1;
+            var chunks = plot.getLoadedChunks();
+            return chunks == null ? -1 : chunks.size();
+        } catch (Throwable ignored) {
+            return -1;
+        }
+    }
+
+    private boolean plotBoxMatchesScan(ShipHull hull) {
+        if (!hull.scannedPlotBox) return false;
+        try {
+            var plot = hull.subLevel().getPlot();
+            var bb = plot == null ? null : plot.getBoundingBox();
+            if (bb == null || bb.volume() <= 0) return false;
+            return bb.minX() == hull.scannedPlotMinX && bb.minY() == hull.scannedPlotMinY
+                    && bb.minZ() == hull.scannedPlotMinZ && bb.maxX() == hull.scannedPlotMaxX
+                    && bb.maxY() == hull.scannedPlotMaxY && bb.maxZ() == hull.scannedPlotMaxZ;
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    private boolean plotBoxChanged(ShipHull hull) {
+        return hull.scannedPlotBox && !plotBoxMatchesScan(hull);
+    }
+
+    /** True when the voxel hull does not cover the plot box, so a partial scan is still short. */
+    private boolean hullSmallerThanPlot(ShipHull hull) {
+        if (!hull.hullValid || hull.voxels.isEmpty()) return false;
+        try {
+            var plot = hull.subLevel().getPlot();
+            var bb = plot == null ? null : plot.getBoundingBox();
+            if (bb == null || bb.volume() <= 0) return false;
+            return hull.minX > bb.minX() || hull.maxX < bb.maxX()
+                    || hull.minY > bb.minY() || hull.maxY < bb.maxY()
+                    || hull.minZ > bb.minZ() || hull.maxZ < bb.maxZ();
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    private void rememberScan(ShipHull hull, int chunks) {
+        if (chunks >= 0) hull.scannedChunkCount = chunks;
+        try {
+            var plot = hull.subLevel().getPlot();
+            var bb = plot == null ? null : plot.getBoundingBox();
+            if (bb != null && bb.volume() > 0) {
+                hull.scannedPlotBox = true;
+                hull.scannedPlotMinX = bb.minX();
+                hull.scannedPlotMinY = bb.minY();
+                hull.scannedPlotMinZ = bb.minZ();
+                hull.scannedPlotMaxX = bb.maxX();
+                hull.scannedPlotMaxY = bb.maxY();
+                hull.scannedPlotMaxZ = bb.maxZ();
+            }
+        } catch (Throwable ignored) {
+            // The next scan records the box once the plot can be read.
         }
     }
 
