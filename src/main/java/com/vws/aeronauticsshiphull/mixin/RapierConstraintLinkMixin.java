@@ -19,5 +19,6 @@ public abstract class RapierConstraintLinkMixin {
     private void ash$rememberJoint(PhysicsPipelineBody a, PhysicsPipelineBody b, PhysicsConstraintConfiguration<?> config,
                                    CallbackInfoReturnable<PhysicsConstraintHandle> cir) {
         JointLinks.added(cir.getReturnValue(), a, b);
+        JointLinks.warnClose(a, b, config);
     }
 }

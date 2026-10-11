@@ -63,6 +63,11 @@ public final class ShipHull {
     public String lastWakeReason = "";
     /** Block changes on this ship during the current tick (explosion-burst wake). */
     public int blockChangesThisTick;
+    /**
+     * Set while this mod is editing blocks itself (an explosion). {@code onBlockChange} only
+     * counts those edits. Waking from inside Sable's {@code setBlock} re-adds the Rapier body.
+     */
+    public boolean blockEditsCountOnly;
     /** Global plot positions whose Rapier voxel collider update was deferred while colliders were off. */
     public final LongSet pendingColliderBlocks = new LongOpenHashSet();
     /** Frozen pose while PARKED (ships stay put). */

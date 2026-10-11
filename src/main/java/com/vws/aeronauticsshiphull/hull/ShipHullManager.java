@@ -2,8 +2,12 @@ package com.vws.aeronauticsshiphull.hull;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -37,6 +41,7 @@ import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.AABB;
 import dev.ryanhcode.sable.api.physics.PhysicsPipeline;
+import dev.ryanhcode.sable.api.physics.PhysicsPipelineBody;
 import dev.ryanhcode.sable.api.sublevel.ServerSubLevelContainer;
 import dev.ryanhcode.sable.api.sublevel.SubLevelContainer;
 import dev.ryanhcode.sable.companion.math.Pose3d;
@@ -73,10 +78,17 @@ public final class ShipHullManager {
     public static Boolean blockEntityTickOverride = null;
     /** Phase 8 ship-sync A/B. null = config ship_hull.phase8.shipSync. */
     public static Boolean shipSyncOverride = null;
-    /** Kill switch. null = config ship_hull.safeMode. false forces parking on until restart. */
+    /**
+     * Startup lock when a park or pose mixin did not apply, or when {@code shiphull.forceSafeMode}
+     * is set. {@code /shiphull safe-mode off} cannot clear it.
+     */
+    public static boolean safeModeForced = false;
+    /** null follows config. {@code /shiphull safe-mode off} sets this back to null. */
     public static Boolean safeModeOverride = null;
     private long lastPhysicsNanos;
     private long lastLagLogNanos;
+    /** Consecutive physics gaps at or above {@code lagWakeMillis}. One pause does not wake. */
+    private int slowGaps;
     /** True while this mod itself calls into the pipeline (suppresses wake hooks). Server thread only. */
     public static boolean INTERNAL = false;
     /** True while replaying deferred collider updates (bypasses the deferral hook). */
@@ -99,6 +111,17 @@ public final class ShipHullManager {
     private long throttledWorldTick = Long.MIN_VALUE;
     /** Connectivity rebuilt once per end tick and on park/wake commands. */
     private List<ParkGroups.Group> groupsThisTick = List.of();
+    /** Ships added since the last group rebuild. Flushed once per physics tick, not once per ship. */
+    private final Set<UUID> pendingAdds = ConcurrentHashMap.newKeySet();
+    /** Hulls that contained a moving non-player on the last shared entity scan. */
+    private final Set<UUID> movingHits = new HashSet<>();
+    private long movingScanTick = Long.MIN_VALUE;
+    private boolean entityScanFailedLogged;
+    /** Group keys already logged by the joint velocity clamp. */
+    private final Set<String> jointClampLogged = new HashSet<>();
+    private static final int ENTITY_CELL = 32;
+    private static final int ENTITY_CELL_CAP = 8;
+    private static final int ENTITY_SCAN_PERIOD = 4;
 
     private ShipHullManager(ServerLevel level) {
         this.level = level;
@@ -142,6 +165,7 @@ public final class ShipHullManager {
     }
 
     public static boolean safeMode() {
+        if (safeModeForced) return true;
         if (safeModeOverride != null) return safeModeOverride;
         return HullConfig.safeMode();
     }
@@ -160,7 +184,7 @@ public final class ShipHullManager {
         if (existing != null) {
             existing.bind(sub);
             wakeBody(sub);
-            wakePartnersIfParked(existing, "memberLoaded");
+            pendingAdds.add(existing.id);
             return;
         }
         ShipHull hull = new ShipHull(sub);
@@ -169,13 +193,40 @@ public final class ShipHullManager {
         LOGGER.info("[shiphull] registered ship {} voxels={} interactive={}",
                 hull.id, hull.voxels.size(), hull.interactive.size());
         wakeBody(sub);
-        wakePartnersIfParked(hull, "memberLoaded");
+        pendingAdds.add(hull.id);
+    }
+
+    /**
+     * Rebuild groups once for every ship queued by {@link #onSubLevelAdded}. A parked partner
+     * wakes in that same pass ({@code memberLoaded}). Unloads stay immediate.
+     */
+    public void flushPendingGroups() {
+        if (pendingAdds.isEmpty()) return;
+        Set<UUID> added = new HashSet<>(pendingAdds);
+        pendingAdds.clear();
+        refreshGroups();
+        long gameTime = level.getGameTime();
+        for (ParkGroups.Group group : groupsThisTick) {
+            boolean parked = false;
+            boolean hasNew = false;
+            for (ShipHull member : group.members) {
+                if (added.contains(member.id)) hasNew = true;
+                if (member.mode == HullMode.PARKED) parked = true;
+            }
+            if (!parked || !hasNew) continue;
+            try {
+                wakeGroup(group.members, "memberLoaded", gameTime);
+            } catch (Throwable t) {
+                anomaly("member load wake failed: " + t);
+            }
+        }
     }
 
     public void onSubLevelRemoved(ServerSubLevel sub) {
         if (sub == null) return;
         ShipHull h = ships.get(sub.getUniqueId());
         if (h == null) return;
+        pendingAdds.remove(sub.getUniqueId());
         try {
             wakePartnersIfParked(h, "memberUnloaded");
         } catch (Throwable t) {
@@ -222,6 +273,8 @@ public final class ShipHullManager {
         if (hull == null) return;
         hull.blockChangesThisTick++;
         hull.onBlockChange(pos, oldSt, newSt);
+        // Explosion edits are counted here and applied after the ship has already left PARKED.
+        if (hull.blockEditsCountOnly) return;
         if (hull.mode == HullMode.PARKED) {
             try {
                 wakePartnersIfParked(hull, "blockChange");
@@ -324,11 +377,13 @@ public final class ShipHullManager {
         return false;
     }
 
-    /** Mass merge only. Simplified FULL ships keep their cached mass, but still read their pose back. */
+    /** Mass merge only. Simplified FULL ships keep their cached mass, but still read their pose back.
+     *  A jointed ship always merges. A cached mass on one side of a joint is how a partner runs away. */
     public boolean skipMassMerge(ServerSubLevel sub) {
-        if (skipDormantWork(sub)) return true;
         if (!globallyEnabled()) return false;
         ShipHull h = ships.get(sub.getUniqueId());
+        if (h != null && h.enabled && sharesConstraint(h)) return false;
+        if (skipDormantWork(sub)) return true;
         if (h == null || !h.enabled) return false;
         if (phase7() && HullConfig.cacheMass() && h.simplifiedHullCollider && !h.piloted && h.mode == HullMode.FULL) {
             HullProfiler.MASS_CACHE_SKIPS.incrementAndGet();
@@ -639,6 +694,136 @@ public final class ShipHullManager {
         }
     }
 
+    /**
+     * Before the Rapier step, zero a whole jointed group when any member is past the absurd
+     * linear or angular cap. One body is never teleported on its own.
+     */
+    public void clampJointedBeforeStep() {
+        if (!globallyEnabled()) return;
+        SubLevelPhysicsSystem phys = SubLevelPhysicsSystem.get(level);
+        if (phys == null) return;
+        PhysicsPipeline pipe = phys.getPipeline();
+        if (pipe == null) return;
+        List<JointLinks.Edge> edges = JointLinks.snapshot();
+        List<List<ShipHull>> batches = new ArrayList<>();
+        for (ParkGroups.Group group : groupsThisTick) {
+            if (group.members.size() > 1 || anyShares(group.members, edges)) batches.add(group.members);
+        }
+        for (JointLinks.Edge edge : edges) {
+            ShipHull a = hullOfBody(edge.a);
+            ShipHull b = hullOfBody(edge.b);
+            if (a == null && b == null) continue;
+            List<ShipHull> pair = new ArrayList<>(2);
+            if (a != null) pair.add(a);
+            if (b != null && (a == null || !a.id.equals(b.id))) pair.add(b);
+            batches.add(pair);
+        }
+        double maxLin = HullConfig.absurdSpeed();
+        double maxAng = HullConfig.absurdAngular();
+        Set<UUID> done = new HashSet<>();
+        for (List<ShipHull> batch : batches) {
+            if (!overSpeed(batch, maxLin, maxAng)) continue;
+            StringBuilder ids = new StringBuilder();
+            for (ShipHull member : batch) {
+                if (!done.add(member.id)) continue;
+                zeroVelocity(member, pipe);
+                if (ids.length() > 0) ids.append(',');
+                ids.append(member.id);
+            }
+            if (ids.length() == 0) continue;
+            if (jointClampLogged.add(ids.toString())) {
+                anomaly("clamped jointed velocity group " + ids);
+            }
+        }
+    }
+
+    /** True when this ship is on a joint. Pose restore must not move that body alone. */
+    public boolean velocityOnlyJointed(ShipHull hull) {
+        if (hull == null) return false;
+        List<JointLinks.Edge> edges = JointLinks.snapshot();
+        if (shares(hull, edges)) return true;
+        for (ShipHull member : groupOf(hull).members) {
+            if (shares(member, edges)) return true;
+        }
+        return false;
+    }
+
+    /** Zero velocity on this ship, its group, and its joint partners. Poses stay where they are. */
+    public void zeroJointedGroup(ShipHull hull, String why) {
+        LinkedHashMap<UUID, ShipHull> members = new LinkedHashMap<>();
+        members.put(hull.id, hull);
+        for (ShipHull member : groupOf(hull).members) members.put(member.id, member);
+        for (JointLinks.Edge edge : JointLinks.snapshot()) {
+            if (!bodyIs(edge.a, hull.id) && !bodyIs(edge.b, hull.id)) continue;
+            PhysicsPipelineBody otherBody = bodyIs(edge.a, hull.id) ? edge.b : edge.a;
+            ShipHull other = hullOfBody(otherBody);
+            if (other != null) members.put(other.id, other);
+        }
+        SubLevelPhysicsSystem phys = SubLevelPhysicsSystem.get(level);
+        PhysicsPipeline pipe = phys == null ? null : phys.getPipeline();
+        for (ShipHull member : members.values()) zeroVelocity(member, pipe);
+        if (!hull.poseGuardLogged) {
+            hull.poseGuardLogged = true;
+            HullProfiler.POSE_RESTORES.incrementAndGet();
+            anomaly("zeroed jointed group velocity " + hull.id + " reason=" + why + " size=" + members.size());
+        }
+    }
+
+    private boolean sharesConstraint(ShipHull hull) {
+        return shares(hull, JointLinks.snapshot());
+    }
+
+    private static boolean anyShares(List<ShipHull> members, List<JointLinks.Edge> edges) {
+        for (ShipHull member : members) {
+            if (shares(member, edges)) return true;
+        }
+        return false;
+    }
+
+    private static boolean shares(ShipHull hull, List<JointLinks.Edge> edges) {
+        if (hull == null) return false;
+        for (JointLinks.Edge edge : edges) {
+            if (bodyIs(edge.a, hull.id) || bodyIs(edge.b, hull.id)) return true;
+        }
+        return false;
+    }
+
+    private static boolean bodyIs(PhysicsPipelineBody body, UUID id) {
+        return body instanceof ServerSubLevel sub && id.equals(sub.getUniqueId());
+    }
+
+    private ShipHull hullOfBody(PhysicsPipelineBody body) {
+        if (!(body instanceof ServerSubLevel sub)) return null;
+        return ships.get(sub.getUniqueId());
+    }
+
+    private static boolean overSpeed(List<ShipHull> batch, double maxLin, double maxAng) {
+        for (ShipHull member : batch) {
+            ServerSubLevel sub = member.subLevel();
+            if (sub == null || sub.isRemoved()) continue;
+            if (sub.latestLinearVelocity.length() > maxLin || sub.latestAngularVelocity.length() > maxAng) return true;
+        }
+        return false;
+    }
+
+    private void zeroVelocity(ShipHull hull, PhysicsPipeline pipe) {
+        ServerSubLevel sub = hull.subLevel();
+        if (sub == null || sub.isRemoved()) return;
+        sub.latestLinearVelocity.zero();
+        sub.latestAngularVelocity.zero();
+        hull.linearVel.zero();
+        hull.angularVel.zero();
+        if (pipe == null) return;
+        INTERNAL = true;
+        try {
+            pipe.resetVelocity(sub);
+        } catch (Throwable t) {
+            LOGGER.debug("[shiphull] reset velocity {}: {}", hull.id, t.toString());
+        } finally {
+            INTERNAL = false;
+        }
+    }
+
     /** Hold a parked ship exactly where it parked (Rapier body may have drifted under gravity). */
     private void pinParked(ShipHull hull, PhysicsPipeline pipe) {
         ServerSubLevel sub = hull.subLevel();
@@ -748,17 +933,26 @@ public final class ShipHullManager {
     }
 
     /**
-     * Called at the head of the physics tick, before the step. A long gap means the next step
-     * would integrate a huge dt against parked bodies, so those bodies are woken first.
+     * Called at the head of the physics tick, before the step. Two long gaps in a row mean the next
+     * step would integrate a huge dt against parked bodies, so those bodies are woken first.
      */
     public void notePhysicsGap(long nowNanos) {
         long prev = lastPhysicsNanos;
         lastPhysicsNanos = nowNanos;
         if (prev == 0L) return;
         int limit = HullConfig.lagWakeMillis();
-        if (limit <= 0) return;
+        if (limit <= 0) {
+            slowGaps = 0;
+            return;
+        }
         long gapMs = (nowNanos - prev) / 1_000_000L;
-        if (gapMs < limit) return;
+        if (gapMs < limit) {
+            slowGaps = 0;
+            return;
+        }
+        // One GC pause is not a lag spike. Wake on the second consecutive slow tick.
+        if (++slowGaps < 2) return;
+        slowGaps = 0;
         if (nowNanos - lastLagLogNanos > 1_000_000_000L) {
             lastLagLogNanos = nowNanos;
             anomaly("physics tick gap " + gapMs + " ms; waking parked ships");
@@ -995,25 +1189,96 @@ public final class ShipHullManager {
 
     /**
      * A minecart, train, or belt item moving through a parked (or nearly still) hull. Full ships
-     * that are still being piloted are not scanned.
+     * that are still being piloted are not scanned. One query covers every ship in a 32-block cell,
+     * and that result is reused for {@link #ENTITY_SCAN_PERIOD} ticks.
      */
     private String movingEntity(ParkGroups.Group group) {
+        prepareMovingEntities();
         for (ShipHull member : group.members) {
-            if (member.mode != HullMode.PARKED && member.stillTicks < 10) continue;
-            AABB box = contactBox(member, 1.0);
-            if (box == null) continue;
-            try {
-                List<Entity> found = level.getEntities((Entity) null, box, entity -> {
-                    if (entity instanceof Player || !entity.isAlive()) return false;
-                    return entity.getDeltaMovement().lengthSqr() > 0.0025;
-                });
-                if (!found.isEmpty()) return "movingEntity";
-            } catch (Throwable t) {
-                anomaly("entity scan failed for " + member.id + ": " + t);
-                if (member.mode == HullMode.PARKED) return "movingEntity";
-            }
+            if (movingHits.contains(member.id)) return "movingEntity";
         }
         return null;
+    }
+
+    private void prepareMovingEntities() {
+        long now = level.getGameTime();
+        if (movingScanTick == now) return;
+        if (movingScanTick != Long.MIN_VALUE && now > movingScanTick && now - movingScanTick < ENTITY_SCAN_PERIOD) return;
+        movingScanTick = now;
+        movingHits.clear();
+        Map<Long, List<ShipHull>> buckets = new HashMap<>();
+        List<ShipHull> alone = new ArrayList<>();
+        for (ShipHull hull : ships.values()) {
+            if (!hull.enabled || hull.subLevel() == null || hull.subLevel().isRemoved()) continue;
+            if (hull.mode != HullMode.PARKED && hull.stillTicks < 10) continue;
+            AABB box = contactBox(hull, 1.0);
+            if (box == null) continue;
+            int x0 = (int) Math.floor(box.minX / ENTITY_CELL);
+            int y0 = (int) Math.floor(box.minY / ENTITY_CELL);
+            int z0 = (int) Math.floor(box.minZ / ENTITY_CELL);
+            int x1 = (int) Math.floor(box.maxX / ENTITY_CELL);
+            int y1 = (int) Math.floor(box.maxY / ENTITY_CELL);
+            int z1 = (int) Math.floor(box.maxZ / ENTITY_CELL);
+            long count = (long) (x1 - x0 + 1) * (y1 - y0 + 1) * (z1 - z0 + 1);
+            if (count <= 0 || count > ENTITY_CELL_CAP) {
+                alone.add(hull);
+                continue;
+            }
+            for (int x = x0; x <= x1; x++) {
+                for (int y = y0; y <= y1; y++) {
+                    for (int z = z0; z <= z1; z++) {
+                        long key = ((long) x & 0x1FFFFFL) | (((long) y & 0x1FFFFFL) << 21) | (((long) z & 0x1FFFFFL) << 42);
+                        buckets.computeIfAbsent(key, k -> new ArrayList<>()).add(hull);
+                    }
+                }
+            }
+        }
+        for (List<ShipHull> bucket : buckets.values()) scanEntityBucket(bucket);
+        for (ShipHull hull : alone) scanEntityBucket(List.of(hull));
+    }
+
+    private void scanEntityBucket(List<ShipHull> bucket) {
+        double minX = Double.POSITIVE_INFINITY, minY = Double.POSITIVE_INFINITY, minZ = Double.POSITIVE_INFINITY;
+        double maxX = Double.NEGATIVE_INFINITY, maxY = Double.NEGATIVE_INFINITY, maxZ = Double.NEGATIVE_INFINITY;
+        boolean any = false;
+        for (ShipHull hull : bucket) {
+            AABB box = contactBox(hull, 1.0);
+            if (box == null) continue;
+            any = true;
+            minX = Math.min(minX, box.minX);
+            minY = Math.min(minY, box.minY);
+            minZ = Math.min(minZ, box.minZ);
+            maxX = Math.max(maxX, box.maxX);
+            maxY = Math.max(maxY, box.maxY);
+            maxZ = Math.max(maxZ, box.maxZ);
+        }
+        if (!any) return;
+        AABB union = new AABB(minX, minY, minZ, maxX, maxY, maxZ);
+        try {
+            List<Entity> found = level.getEntities((Entity) null, union, entity -> {
+                if (entity instanceof Player || !entity.isAlive()) return false;
+                return entity.getDeltaMovement().lengthSqr() > 0.0025;
+            });
+            if (found.isEmpty()) return;
+            for (ShipHull hull : bucket) {
+                AABB box = contactBox(hull, 1.0);
+                if (box == null) continue;
+                for (Entity entity : found) {
+                    if (box.intersects(entity.getBoundingBox())) {
+                        movingHits.add(hull.id);
+                        break;
+                    }
+                }
+            }
+        } catch (Throwable t) {
+            if (!entityScanFailedLogged) {
+                entityScanFailedLogged = true;
+                anomaly("entity scan failed: " + t);
+            }
+            for (ShipHull hull : bucket) {
+                if (hull.mode == HullMode.PARKED) movingHits.add(hull.id);
+            }
+        }
     }
 
     private boolean readablePose(ShipHull hull) {
@@ -1558,7 +1823,10 @@ public final class ShipHullManager {
         long gameTime = level.getGameTime();
         syncFromContainer();
         if (globallyEnabled()) syncRapierMembership();
-        if (phase6() && globallyEnabled()) refreshGroups();
+        if (phase6() && globallyEnabled()) {
+            flushPendingGroups();
+            refreshGroups();
+        }
 
         for (ShipHull hull : ships.values()) {
             if (hull.subLevel() != null && !hull.subLevel().isRemoved() && hull.subLevel().getLevel() != level) {
@@ -1770,41 +2038,63 @@ public final class ShipHullManager {
      * Does NOT return to per-block ticking.
      */
     public int handleExplosion(ShipHull hull, double worldX, double worldY, double worldZ, double radius) {
-        if (hull == null || hull.subLevel() == null) return 0;
+        if (hull == null || hull.subLevel() == null || hull.subLevel().isRemoved()) return 0;
         ServerSubLevel sub = hull.subLevel();
-        var accessor = sub.getPlot().getEmbeddedLevelAccessor();
-        BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
-        LongSet removed = new LongOpenHashSet();
-
-        // Test each voxel in ship-local space against world-space blast
+        LevelPlot plot = sub.getPlot();
+        if (plot == null || plot.getEmbeddedLevelAccessor() == null) {
+            anomaly("explosion on " + hull.id + " has no plot");
+            return 0;
+        }
+        var accessor = plot.getEmbeddedLevelAccessor();
         Pose3d pose = sub.logicalPose();
         if (pose == null || pose.position() == null || pose.orientation() == null || pose.rotationPoint() == null) return 0;
-        Vector3d tmp = new Vector3d();
-        Vector3d rp = pose.rotationPoint();
-        double r2 = radius * radius;
-        for (long key : new LongOpenHashSet(hull.voxels)) {
-            int lx = BlockPos.getX(key), ly = BlockPos.getY(key), lz = BlockPos.getZ(key);
-            tmp.set(lx + 0.5 - rp.x, ly + 0.5 - rp.y, lz + 0.5 - rp.z);
-            pose.orientation().transform(tmp);
-            tmp.add(pose.position());
-            double dx = tmp.x - worldX, dy = tmp.y - worldY, dz = tmp.z - worldZ;
-            if (dx * dx + dy * dy + dz * dz <= r2) {
-                removed.add(key);
-                cursor.set(lx, ly, lz);
-                accessor.setBlock(cursor, Blocks.AIR.defaultBlockState(), 3);
-                hull.voxels.remove(key);
-                hull.interactive.remove(key);
-            }
-        }
-        hull.recomputeHullBounds();
-        hull.explosionsHandled++;
-        HullProfiler.EXPLOSIONS.incrementAndGet();
 
+        // Leave PARKED, and wake partners, before setBlock. onBlockChange would otherwise
+        // re-add the Rapier body from inside Sable's own setBlock.
         promote(hull, HullMode.REBUILDING, level.getGameTime());
         try {
             wakeNow(hull, "explosion", level.getGameTime());
         } catch (Throwable t) {
             anomaly("explosion wake failed for " + hull.id + ": " + t);
+        }
+        sub = hull.subLevel();
+        if (sub == null || sub.isRemoved()) {
+            anomaly("explosion on " + hull.id + " lost its sub-level before the edit");
+            return 0;
+        }
+
+        BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
+        LongSet removed = new LongOpenHashSet();
+        Vector3d tmp = new Vector3d();
+        Vector3d rp = pose.rotationPoint();
+        double r2 = radius * radius;
+        hull.blockEditsCountOnly = true;
+        try {
+            for (long key : new LongOpenHashSet(hull.voxels)) {
+                int lx = BlockPos.getX(key), ly = BlockPos.getY(key), lz = BlockPos.getZ(key);
+                tmp.set(lx + 0.5 - rp.x, ly + 0.5 - rp.y, lz + 0.5 - rp.z);
+                pose.orientation().transform(tmp);
+                tmp.add(pose.position());
+                double dx = tmp.x - worldX, dy = tmp.y - worldY, dz = tmp.z - worldZ;
+                if (dx * dx + dy * dy + dz * dz <= r2) {
+                    removed.add(key);
+                    cursor.set(lx, ly, lz);
+                    accessor.setBlock(cursor, Blocks.AIR.defaultBlockState(), 3);
+                    hull.voxels.remove(key);
+                    hull.interactive.remove(key);
+                }
+            }
+        } finally {
+            hull.blockEditsCountOnly = false;
+        }
+        hull.recomputeHullBounds();
+        hull.explosionsHandled++;
+        HullProfiler.EXPLOSIONS.incrementAndGet();
+
+        sub = hull.subLevel();
+        if (sub == null || sub.isRemoved()) {
+            anomaly("explosion on " + hull.id + " lost its sub-level during the edit");
+            return removed.size();
         }
 
         List<LongSet> comps = Connectivity.components(hull.voxels);
@@ -1826,9 +2116,9 @@ public final class ShipHullManager {
                 hull.splitsPerformed++;
                 HullProfiler.SPLITS.incrementAndGet();
                 // Store pending split voxels on the parent for /shiphull split_apply
-                hull.subLevel().getUserDataTag().putLongArray("ash_pending_split_" + i, piece.toLongArray());
+                sub.getUserDataTag().putLongArray("ash_pending_split_" + i, piece.toLongArray());
             }
-            hull.subLevel().getUserDataTag().putInt("ash_pending_splits", comps.size() - 1);
+            sub.getUserDataTag().putInt("ash_pending_splits", comps.size() - 1);
         }
         return removed.size();
     }
@@ -1858,8 +2148,8 @@ public final class ShipHullManager {
             if (h.piloted) piloted++;
             voxels += h.voxels.size();
         }
-        return String.format("ships=%d cheap=%d parked=%d full=%d rebuilding=%d piloted=%d voxels=%d enabled=%s safeMode=%s softSleep=%s bridge=%s demotesSuppressed=%d | %s | %s | %s",
+        return String.format("ships=%d cheap=%d parked=%d full=%d rebuilding=%d piloted=%d voxels=%d enabled=%s safeMode=%s forced=%s softSleep=%s bridge=%s demotesSuppressed=%d | %s | %s | %s",
                 ships.size(), cheap, parked, full, rebuild, piloted, voxels,
-                globallyEnabled(), safeMode(), cheapSoftSleepEnabled(), ShipCadence.factoryBridgeActive(), demotesSuppressed, phase6Status(), phase7Status(), phase8Status(), HullProfiler.summary());
+                globallyEnabled(), safeMode(), safeModeForced, cheapSoftSleepEnabled(), ShipCadence.factoryBridgeActive(), demotesSuppressed, phase6Status(), phase7Status(), phase8Status(), HullProfiler.summary());
     }
 }

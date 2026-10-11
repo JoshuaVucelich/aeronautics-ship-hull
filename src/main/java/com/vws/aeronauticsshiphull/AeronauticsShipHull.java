@@ -65,11 +65,15 @@ public class AeronauticsShipHull {
     private void onServerStarting(ServerStartingEvent event) {
         var missing = missingCriticalMixins();
         if (!missing.isEmpty()) {
-            ShipHullManager.safeModeOverride = Boolean.TRUE;
-            LOGGER.error("[shiphull] anomaly: critical mixin targets missing {}; safe-mode is on. Parking stays off.", missing);
+            ShipHullManager.safeModeForced = true;
+            LOGGER.error("[shiphull] anomaly: critical mixin targets missing {}; safe-mode is forced on. /shiphull safe-mode off cannot clear it.", missing);
         }
-        LOGGER.info("{} ready; hull mode {} safeMode={} (parked state is not saved; ships register in FULL)",
-                MOD_ID, HullConfig.enabled() ? "ENABLED" : "disabled", ShipHullManager.safeMode());
+        if (Boolean.getBoolean("shiphull.forceSafeMode")) {
+            ShipHullManager.safeModeForced = true;
+            LOGGER.error("[shiphull] anomaly: shiphull.forceSafeMode is set; safe-mode is forced on. /shiphull safe-mode off cannot clear it.");
+        }
+        LOGGER.info("{} ready; hull mode {} safeMode={} forced={} (parked state is not saved; ships register in FULL)",
+                MOD_ID, HullConfig.enabled() ? "ENABLED" : "disabled", ShipHullManager.safeMode(), ShipHullManager.safeModeForced);
     }
 
     /**

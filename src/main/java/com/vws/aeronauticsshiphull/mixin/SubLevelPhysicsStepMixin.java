@@ -52,6 +52,8 @@ public abstract class SubLevelPhysicsStepMixin {
 
     @Inject(method = "tick", at = @At("RETURN"))
     private void ash$tickReturn(SubLevelContainer container, CallbackInfo ci) {
+        ShipHullManager mgr = ShipHullManager.getOrNull(level);
+        if (mgr != null) mgr.flushPendingGroups();
         HullProfiler.SABLE_TICK_NS.addAndGet(System.nanoTime() - ash$tickStart);
         HullProfiler.SABLE_TICK_CALLS.incrementAndGet();
     }
@@ -74,6 +76,7 @@ public abstract class SubLevelPhysicsStepMixin {
     private void ash$stepHead(ServerSubLevelContainer container, CallbackInfo ci) {
         ShipHullManager mgr = ShipHullManager.getOrNull(level);
         if (mgr == null) return;
+        mgr.flushPendingGroups();
         if (mgr.shouldSkipStep((SubLevelPhysicsSystem) (Object) this)) {
             // Keep Sable's bookkeeping consistent: removals still processed, substep counter at "done".
             container.processSubLevelRemovals();
@@ -91,6 +94,7 @@ public abstract class SubLevelPhysicsStepMixin {
         }
         mgr.noteStepRan();
         mgr.pinParkedBeforeStep();
+        mgr.clampJointedBeforeStep();
         if (mgr.distantSolverThisTick()) {
             ash$solverLod = true;
             Rapier3DInvoker.ash$configSolverIterations(

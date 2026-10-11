@@ -63,12 +63,13 @@ public final class HullConfig {
         ModConfigSpec.Builder b = new ModConfigSpec.Builder();
         b.push("ship_hull");
         SAFE_MODE = b.comment("Global kill switch. When true, every parked ship is woken and nothing new is parked. "
-                + "/shiphull safe-mode on does the same immediately. /shiphull safe-mode off forces parking back on "
-                + "until the next restart, even when this value is true.")
+                + "/shiphull safe-mode on does the same immediately. /shiphull safe-mode off clears that override "
+                + "and follows this value again. A mixin miss forces safe-mode on, and the command cannot clear that.")
                 .define("safeMode", false);
-        LAG_WAKE_MILLIS = b.comment("Wake every parked ship before the physics step when the gap since the previous "
-                + "physics tick is at least this many milliseconds. The first tick after startup is ignored. 0 disables the check.")
-                .defineInRange("lagWakeMillis", 250, 0, 60000);
+        LAG_WAKE_MILLIS = b.comment("Wake every parked ship before the physics step when two physics ticks in a row "
+                + "are each at least this many milliseconds apart. One GC pause does not wake. The first tick after "
+                + "startup is ignored. 0 disables the check.")
+                .defineInRange("lagWakeMillis", 500, 0, 60000);
         ENABLED = b.comment("Master switch for hull cheap-physics diversion").define("enabled", true);
         CHEAP_PERIOD_TICKS = b.comment("Ticks between CHEAP integrator steps (2=10Hz, 4=5Hz)")
                 .defineInRange("cheapPeriodTicks", 2, 1, 20);
@@ -140,7 +141,7 @@ public final class HullConfig {
                 .define("simplifiedHullColliders", true);
         SIMPLIFIED_RADIUS = b.comment("Within this radius of a player, keep full voxel colliders")
                 .defineInRange("simplifiedRadius", 48.0, 0.0, 512.0);
-        CACHE_MASS = b.comment("Skip Sable updateMergedMassData for unpiloted CHEAP/simplified ships (mass frozen until wake/rebuild)")
+        CACHE_MASS = b.comment("Skip Sable updateMergedMassData for unpiloted CHEAP/simplified ships (mass frozen until wake/rebuild). Jointed ships always merge.")
                 .define("cacheMass", true);
         SKIP_BLOCK_COLLIDER_WHILE_MOVING = b.comment("While simplified/CHEAP soft-sleep, defer per-block Rapier collider updates (rigid hull)")
                 .define("skipBlockColliderWhileMoving", true);

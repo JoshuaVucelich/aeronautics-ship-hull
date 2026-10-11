@@ -49,7 +49,8 @@ public final class ShipHullCommand {
                         .then(Commands.literal("off").executes(c -> setSafeMode(c, false)))
                         .executes(c -> {
                             boolean on = ShipHullManager.safeMode();
-                            c.getSource().sendSuccess(() -> Component.literal("safe-mode=" + on), false);
+                            boolean forced = ShipHullManager.safeModeForced;
+                            c.getSource().sendSuccess(() -> Component.literal("safe-mode=" + on + " forced=" + forced), false);
                             return 1;
                         }))
                 .then(Commands.literal("softsleep")
@@ -220,14 +221,20 @@ public final class ShipHullCommand {
     }
 
     private static int setSafeMode(CommandContext<CommandSourceStack> c, boolean on) {
-        ShipHullManager.safeModeOverride = on;
         if (on) {
+            ShipHullManager.safeModeOverride = Boolean.TRUE;
             ShipHullManager.anomaly("safe-mode on");
             mgr(c).wakeAllParked("safe-mode");
         } else {
-            ShipHullManager.anomaly("safe-mode off");
+            ShipHullManager.safeModeOverride = null;
+            if (ShipHullManager.safeModeForced) {
+                ShipHullManager.anomaly("safe-mode off ignored; forced safe-mode stays on");
+            } else {
+                ShipHullManager.anomaly("safe-mode off");
+            }
         }
-        c.getSource().sendSuccess(() -> Component.literal("safe-mode=" + on), true);
+        boolean now = ShipHullManager.safeMode();
+        c.getSource().sendSuccess(() -> Component.literal("safe-mode=" + now + " forced=" + ShipHullManager.safeModeForced), true);
         return 1;
     }
 

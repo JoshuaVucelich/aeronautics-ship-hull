@@ -142,8 +142,8 @@ public final class ParkGroups {
     }
 
     /**
-     * Touch tests only ships that share a 32-block cell. An unreadable box still links to every
-     * ship, so one partner cannot freeze alone. A usable box that covers too many cells is compared
+     * Touch tests only ships that share a 32-block cell. A ship with no hull and no box, or any
+     * other unreadable box, links to every ship. A usable box that covers too many cells is compared
      * with every ship instead of being unioned with all of them.
      */
     private static void linkTouching(List<ShipHull> live, int[] parent, int[] rank, double linkBlocks) {
@@ -154,11 +154,9 @@ public final class ParkGroups {
         for (int i = 0; i < n; i++) {
             BoundingBox3dc box = sableBox(live.get(i));
             if (!usable(box)) {
-                // A hull that has not been built yet has no box. Linking it to every ship wakes the
-                // whole server on assemble. A built hull with an unreadable box still links to all,
-                // so a broken partner cannot stay frozen alone.
-                ShipHull hull = live.get(i);
-                if (!hull.voxels.isEmpty() || hull.hullValid) linkAll.add(i);
+                // No hull and no box is the incident pattern: that ship must fail toward linked,
+                // never sit alone while a partner keeps simulating.
+                linkAll.add(i);
                 continue;
             }
             int x0 = cell(box.minX() - linkBlocks);
