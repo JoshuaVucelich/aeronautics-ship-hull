@@ -31,6 +31,7 @@ import it.unimi.dsi.fastutil.longs.Long2ByteOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import it.unimi.dsi.fastutil.longs.LongSet;
 import net.minecraft.core.BlockPos;
+import net.minecraft.nbt.CompoundTag;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
@@ -2105,6 +2106,8 @@ public final class ShipHullManager {
             hull.voxels.clear();
             hull.voxels.addAll(keep);
             hull.recomputeHullBounds();
+            // Sable leaves userDataTag null until something writes it. The split record is that write.
+            if (sub.getUserDataTag() == null) sub.setUserDataTag(new CompoundTag());
             for (int i = 1; i < comps.size(); i++) {
                 LongSet piece = comps.get(i);
                 // Record a "virtual split" child hull entry with its own UUID for Phase 3 console tests.
