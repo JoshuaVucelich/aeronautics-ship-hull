@@ -59,6 +59,8 @@ public final class ShipHullManager {
     public static Boolean phase8Override = null;
     /** Collider-cache A/B switch (null = config). */
     public static Boolean colliderCacheOverride = null;
+    /** Contraption-tick A/B switch (null = config). */
+    public static Boolean contraptionTickOverride = null;
     /** True while this mod itself calls into the pipeline (suppresses wake hooks). Server thread only. */
     public static boolean INTERNAL = false;
     /** True while replaying deferred collider updates (bypasses the deferral hook). */
@@ -162,6 +164,40 @@ public final class ShipHullManager {
 
     public static boolean colliderCache() {
         return colliderCacheOverride != null ? colliderCacheOverride : HullConfig.colliderCache();
+    }
+
+    public static boolean contraptionTick() {
+        return contraptionTickOverride != null ? contraptionTickOverride : HullConfig.contraptionTick();
+    }
+
+    /** Parked, or settled CHEAP: the welded contraption pose cannot have moved. */
+    public boolean skipContraptionPose(double x, double y, double z) {
+        if (!contraptionTick()) return false;
+        ShipHull h = hullAt(x, y, z);
+        if (h == null || !h.enabled) return false;
+        if (h.mode == HullMode.PARKED) return true;
+        return h.mode == HullMode.CHEAP
+                && h.linearVel.lengthSquared() < 1e-6
+                && h.angularVel.lengthSquared() < 1e-6;
+    }
+
+    /** True when this contraption entity tick should be skipped (parked, nobody near, off-period). */
+    public boolean throttleContraptionEntity(double x, double y, double z, long gameTime) {
+        if (!contraptionTick()) return false;
+        ShipHull h = hullAt(x, y, z);
+        if (h == null || h.mode != HullMode.PARKED) return false;
+        if (playerNear(h, HullConfig.wakeRadius())) return false;
+        int period = HullConfig.contraptionEntityPeriod();
+        if (period <= 1) return false;
+        return Math.floorMod(gameTime + (h.id.hashCode() & 1023), period) != 0;
+    }
+
+    private ShipHull hullAt(double x, double y, double z) {
+        for (ShipHull h : ships.values()) {
+            if (!h.hullValid || h.subLevel() == null) continue;
+            if (h.worldHullAABB().inflate(2.0).contains(x, y, z)) return h;
+        }
+        return null;
     }
 
     /** CHEAP/PARKED ship whose substep work (begin/mass merge/pose readback) Sable may skip.

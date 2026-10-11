@@ -38,3 +38,8 @@ Phase 4 emitter: `ShipCadence` (+ FactoryCadence reflection bridge).
 - Hull bounds update incrementally when a block is added or an interior block is removed. A full voxel scan runs only when a block on the current min/max face is removed.
 - Interactive-cell classification is cached per block state.
 - Waking a ship with at least 48 deferred collider cells replays each dirty 16³ section with one `handleChunkSectionAddition` instead of seven native `changeBlock` calls per cell.
+
+**Contraption tick (1.0.0-phase8-combined):** `/shiphull contraptionTick off|on`.
+- Kinematic contraptions on a PARKED ship, or on a settled CHEAP ship, skip the per-substep pose upload into Rapier.
+- Dormant ships skip the splitting heat-map walk.
+- Create contraption entities on a parked ship with no player nearby and no player passenger tick every 4 ticks. A player passenger or a player within the wake radius keeps every-tick updates.

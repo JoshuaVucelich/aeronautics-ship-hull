@@ -43,6 +43,9 @@ public final class HullProfiler {
     public static final AtomicLong BOUNDS_INCREMENTAL = new AtomicLong();
     public static final AtomicLong BOUNDS_FULL_SCANS = new AtomicLong();
     public static final AtomicLong COLLIDER_SECTION_REPLAYS = new AtomicLong();
+    public static final AtomicLong CONTRAPTION_POSE_SKIPS = new AtomicLong();
+    public static final AtomicLong CONTRAPTION_ENTITY_SKIPS = new AtomicLong();
+    public static final AtomicLong HEATMAP_SKIPS = new AtomicLong();
 
     public static void reset() {
         RAPIER_STEPS.set(0);
@@ -78,6 +81,9 @@ public final class HullProfiler {
         BOUNDS_INCREMENTAL.set(0);
         BOUNDS_FULL_SCANS.set(0);
         COLLIDER_SECTION_REPLAYS.set(0);
+        CONTRAPTION_POSE_SKIPS.set(0);
+        CONTRAPTION_ENTITY_SKIPS.set(0);
+        HEATMAP_SKIPS.set(0);
     }
 
     public static String phase6Summary() {
@@ -93,7 +99,9 @@ public final class HullProfiler {
                 + String.format(" | p8 coastSkips=%d coastIntegrations=%d solverLod=%d",
                 COAST_SKIPS.get(), COAST_INTEGRATIONS.get(), SOLVER_LOD_TICKS.get())
                 + String.format(" | collider boundsIncr=%d boundsScan=%d sectionReplays=%d",
-                BOUNDS_INCREMENTAL.get(), BOUNDS_FULL_SCANS.get(), COLLIDER_SECTION_REPLAYS.get());
+                BOUNDS_INCREMENTAL.get(), BOUNDS_FULL_SCANS.get(), COLLIDER_SECTION_REPLAYS.get())
+                + String.format(" | contraption poseSkips=%d entitySkips=%d heatSkips=%d",
+                CONTRAPTION_POSE_SKIPS.get(), CONTRAPTION_ENTITY_SKIPS.get(), HEATMAP_SKIPS.get());
     }
 
     public static String summary() {

@@ -45,6 +45,8 @@ public final class HullConfig {
     private static final ModConfigSpec.IntValue DISTANT_SOLVER_ITERATIONS;
     private static final ModConfigSpec.BooleanValue COLLIDER_CACHE;
     private static final ModConfigSpec.IntValue COLLIDER_SECTION_REPLAY_AT;
+    private static final ModConfigSpec.BooleanValue CONTRAPTION_TICK;
+    private static final ModConfigSpec.IntValue CONTRAPTION_ENTITY_PERIOD;
 
     static {
         ModConfigSpec.Builder b = new ModConfigSpec.Builder();
@@ -138,6 +140,13 @@ public final class HullConfig {
                 + "with one chunk upload instead of a native changeBlock per cell")
                 .defineInRange("sectionReplayAt", 48, 1, 4096);
         b.pop();
+        b.push("contraptionTick");
+        CONTRAPTION_TICK = b.comment("Skip kinematic contraption pose uploads and heat maps on parked/settled ships, "
+                + "and tick contraption entities on unattended parked ships every contraptionEntityPeriod ticks")
+                .define("enabled", true);
+        CONTRAPTION_ENTITY_PERIOD = b.comment("Contraption entity tick period on a parked ship with no player nearby (1 = every tick)")
+                .defineInRange("contraptionEntityPeriod", 4, 1, 20);
+        b.pop();
         b.pop();
         SPEC = b.build();
     }
@@ -180,6 +189,8 @@ public final class HullConfig {
     public static int distantSolverIterations() { return DISTANT_SOLVER_ITERATIONS.get(); }
     public static boolean colliderCache() { return COLLIDER_CACHE.get(); }
     public static int colliderSectionReplayAt() { return COLLIDER_SECTION_REPLAY_AT.get(); }
+    public static boolean contraptionTick() { return CONTRAPTION_TICK.get(); }
+    public static int contraptionEntityPeriod() { return CONTRAPTION_ENTITY_PERIOD.get(); }
 
     private HullConfig() {}
 }

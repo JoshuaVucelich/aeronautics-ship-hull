@@ -5,12 +5,15 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
+import com.llamalad7.mixinextras.injector.v2.WrapWithCondition;
 import com.vws.aeronauticsshiphull.hull.HullMode;
 import com.vws.aeronauticsshiphull.hull.ShipHull;
 import com.vws.aeronauticsshiphull.hull.ShipHullManager;
+import com.vws.aeronauticsshiphull.profile.HullProfiler;
 
 import dev.ryanhcode.sable.api.physics.handle.RigidBodyHandle;
 import dev.ryanhcode.sable.sublevel.ServerSubLevel;
+import dev.ryanhcode.sable.sublevel.plot.heat.SubLevelHeatMapManager;
 import dev.ryanhcode.sable.sublevel.system.SubLevelPhysicsSystem;
 
 /**
@@ -35,5 +38,16 @@ public abstract class ServerSubLevelMixin {
     @Inject(method = "applyQueuedForces", at = @At("HEAD"), cancellable = true)
     private void ash$skipForces(SubLevelPhysicsSystem system, RigidBodyHandle handle, double dt, CallbackInfo ci) {
         if (ash$cheap((ServerSubLevel) (Object) this)) ci.cancel();
+    }
+
+    /** Splitting heat maps walk the voxel set. A dormant ship is not splitting. */
+    @WrapWithCondition(method = "tick",
+            at = @At(value = "INVOKE", target = "Ldev/ryanhcode/sable/sublevel/plot/heat/SubLevelHeatMapManager;tick()V"))
+    private boolean ash$heat(SubLevelHeatMapManager heat) {
+        if (!ShipHullManager.contraptionTick()) return true;
+        ServerSubLevel self = (ServerSubLevel) (Object) this;
+        if (!ash$cheap(self)) return true;
+        HullProfiler.HEATMAP_SKIPS.incrementAndGet();
+        return false;
     }
 }

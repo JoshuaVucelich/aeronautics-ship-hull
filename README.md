@@ -42,6 +42,8 @@ Phase 8 is on by default. `/shiphull phase8 off` and `on` flip it in game.
 
 Collider cache is on by default. `/shiphull colliderCache off` and `on` flip it in game. Adding a block or deleting an interior block updates the hull bounds without scanning every voxel. Deleting a block on the hull's min or max face still scans. A wake that replayed 48 or more deferred collider cells uploads each dirty chunk section once.
 
+Contraption tick cuts are on by default. `/shiphull contraptionTick off` and `on` flip them. A contraption welded to a parked ship does not re-upload its pose, and the ship's splitting heat map does not run. The contraption entity itself ticks every 4 ticks while the ship is parked and no player is within 16 blocks or riding it.
+
 `/shiphull nest` pins a child ship to a parent ship with a local offset, for a bearing or crane. Each tick the child pose follows the parent. If the child is in Rapier, it is teleported to match. The two ships stay separate bodies.
 
 `ShipCadence` fires when a ship's mode changes (CHEAP, REBUILDING, or FULL). If `create_factory_graph` is loaded, that event is mirrored into `FactoryCadence` by reflection, and a locator is registered so a factory graph can find its ship. Either jar can be updated on its own.
@@ -61,7 +63,7 @@ Needs permission level 2.
 - `/shiphull explode <uuid> <pos> <radius>` or `explode <uuid> here <radius>`
 - `/shiphull route <uuid> add|clear|start|impulse ...`
 - `/shiphull nest <parent> <child> <lx> <ly> <lz>`
-- `/shiphull softsleep on|off`, `phase6 on|off`, `phase7 on|off`, `phase8 on|off`, `colliderCache on|off`
+- `/shiphull softsleep on|off`, `phase6 on|off`, `phase7 on|off`, `phase8 on|off`, `colliderCache on|off`, `contraptionTick on|off`
 
 ## Build
 

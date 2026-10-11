@@ -9,6 +9,8 @@
     "SubLevelPhysicsStepMixin",
     "ServerLevelPlotMixin",
     "ServerSubLevelMixin",
+    "RapierContraptionPoseMixin",
+    "AbstractContraptionEntityTickMixin",
     "SubLevelPhysicsSystemMixin",
     "accessor.RapierPhysicsPipelineAccessor",
     "accessor.Rapier3DInvoker"
