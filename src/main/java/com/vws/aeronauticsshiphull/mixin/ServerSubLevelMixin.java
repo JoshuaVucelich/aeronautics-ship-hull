@@ -6,7 +6,7 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 import com.llamalad7.mixinextras.injector.v2.WrapWithCondition;
-import com.vws.aeronauticsshiphull.hull.HullMode;
+import com.vws.aeronauticsshiphull.hull.PoseGuard;
 import com.vws.aeronauticsshiphull.hull.SableQueries;
 import com.vws.aeronauticsshiphull.hull.ShipHull;
 import com.vws.aeronauticsshiphull.hull.ShipHullManager;
@@ -39,6 +39,17 @@ public abstract class ServerSubLevelMixin {
     @Inject(method = "applyQueuedForces", at = @At("HEAD"), cancellable = true)
     private void ash$skipForces(SubLevelPhysicsSystem system, RigidBodyHandle handle, double dt, CallbackInfo ci) {
         if (ash$cheap((ServerSubLevel) (Object) this)) ci.cancel();
+    }
+
+    /** Before Sable's extreme-Y removal check. */
+    @Inject(method = "tick", at = @At("HEAD"))
+    private void ash$poseGuardHead(CallbackInfo ci) {
+        PoseGuard.beforeTick((ServerSubLevel) (Object) this);
+    }
+
+    @Inject(method = "tick", at = @At("RETURN"))
+    private void ash$poseGuardTail(CallbackInfo ci) {
+        PoseGuard.afterTick((ServerSubLevel) (Object) this);
     }
 
     /** Splitting heat maps walk the voxel set. A dormant ship is not splitting. */

@@ -231,10 +231,11 @@ public final class ShipHullCommand {
         for (ShipHull h : m.all()) {
             var pose = h.subLevel() != null ? h.subLevel().logicalPose() : null;
             var pp = pose == null ? null : pose.position();
-            String line = String.format("%s mode=%s piloted=%s rapierSolve=%s voxels=%d interactive=%d cheap=%d rapierSteps=%d nested=%d still=%d wake=%s pos=%s",
+            String line = String.format("%s mode=%s piloted=%s rapierSolve=%s voxels=%d interactive=%d cheap=%d rapierSteps=%d nested=%d still=%d wake=%s pos=%s group=%d",
                     h.id, h.mode, h.piloted, h.mode.usesRapier(), h.voxels.size(), h.interactive.size(),
                     h.cheapSteps, h.rapierSteps, h.nested.size(), h.stillTicks, h.lastWakeReason,
-                    pp == null ? "-" : String.format("%.4f,%.4f,%.4f", pp.x, pp.y, pp.z));
+                    pp == null ? "-" : String.format("%.4f,%.4f,%.4f", pp.x, pp.y, pp.z),
+                    m.groupSize(h));
             c.getSource().sendSuccess(() -> Component.literal(line), false);
         }
         return m.all().size();
@@ -291,12 +292,26 @@ public final class ShipHullCommand {
             return 0;
         }
         long t = c.getSource().getLevel().getGameTime();
-        if (mode == HullMode.PARKED) mgr(c).parkNow(h, t);
-        else if (h.mode == HullMode.PARKED && mode.usesRapier()) mgr(c).wakeNow(h, "command", t);
-        else if (mode.usesRapier()) mgr(c).promote(h, mode, t);
-        else h.setMode(mode, t);
-        c.getSource().sendSuccess(() -> Component.literal("mode=" + h.mode + " cadence=" + ShipCadence.get(h.id)), false);
-        return 1;
+        ShipHullManager manager = mgr(c);
+        int group = 1;
+        if (mode == HullMode.PARKED) {
+            group = manager.parkNow(h, t);
+            if (group <= 0) {
+                c.getSource().sendFailure(Component.literal("refused to park " + h.id + "; the connected group is not safe to freeze"));
+                return 0;
+            }
+        } else if (h.mode == HullMode.PARKED && mode.usesRapier()) {
+            group = manager.wakeNow(h, "command", t);
+        } else if (mode.usesRapier()) {
+            manager.promote(h, mode, t);
+            group = manager.groupSize(h);
+        } else {
+            h.setMode(mode, t);
+            group = manager.groupSize(h);
+        }
+        int reported = group;
+        c.getSource().sendSuccess(() -> Component.literal("mode=" + h.mode + " group=" + reported + " cadence=" + ShipCadence.get(h.id)), false);
+        return reported;
     }
 
     private static int inspect(CommandContext<CommandSourceStack> c) {

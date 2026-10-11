@@ -70,6 +70,22 @@ public final class ShipHull {
     public final Quaterniond parkedRot = new Quaterniond();
     /** Parked while resting on terrain/another ship: colliders stay on so Rapier keeps the body asleep. */
     public boolean parkedGrounded;
+    /** Parked with a connected group: every body is pinned each tick and colliders stay on. */
+    public boolean groupPinned;
+    /** Plot scan found nothing often enough that a truly empty ship can stop retrying. */
+    public boolean hullScanSettled;
+    public int emptyHullScans;
+    public boolean hullBuiltLogged;
+    /** Last pose that stayed inside Sable's keep range. */
+    public final Vector3d lastGoodPos = new Vector3d();
+    public final Quaterniond lastGoodRot = new Quaterniond();
+    public boolean hasLastGoodPose;
+    public boolean poseGuardLogged;
+    public int poseGuardStableTicks;
+    /** {@code getContraptions()} threw this tick. The group treats that as a moving contraption. */
+    public boolean contraptionsUnreadable;
+    /** Previous bearing angle, keyed by contraption entity id, to notice a moving contraption. */
+    public final Map<Integer, Float> contraptionAngles = new HashMap<>();
 
     /** Local-space axis-aligned hull (block coords). */
     public int minX, minY, minZ, maxX, maxY, maxZ;

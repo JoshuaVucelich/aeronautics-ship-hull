@@ -88,6 +88,7 @@ public abstract class SubLevelPhysicsStepMixin {
             return;
         }
         mgr.noteStepRan();
+        mgr.pinParkedBeforeStep();
         if (mgr.distantSolverThisTick()) {
             ash$solverLod = true;
             Rapier3DInvoker.ash$configSolverIterations(
@@ -134,7 +135,12 @@ public abstract class SubLevelPhysicsStepMixin {
     @WrapWithCondition(method = "tickPipelinePhysics",
             at = @At(value = "INVOKE", target = "Ldev/ryanhcode/sable/sublevel/ServerSubLevel;updateMergedMassData(F)V"))
     private boolean ash$gateMass(ServerSubLevel sub, float partial) {
-        return ash$work(sub);
+        ShipHullManager mgr = ShipHullManager.getOrNull(level);
+        if (mgr != null && mgr.skipMassMerge(sub)) {
+            HullProfiler.DORMANT_WORK_SKIPS.incrementAndGet();
+            return false;
+        }
+        return true;
     }
 
     @WrapWithCondition(method = "updateAllPoses",

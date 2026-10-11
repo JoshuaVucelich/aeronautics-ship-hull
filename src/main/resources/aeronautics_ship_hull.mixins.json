@@ -6,6 +6,8 @@
   "mixins": [
     "RapierPhysicsPipelineMixin",
     "RapierPipelineHooksMixin",
+    "RapierConstraintLinkMixin",
+    "RapierConstraintRemoveMixin",
     "SubLevelPhysicsStepMixin",
     "ServerLevelPlotMixin",
     "ServerSubLevelMixin",

@@ -25,6 +25,10 @@ public final class HullConfig {
     private static final ModConfigSpec.BooleanValue SKIP_DORMANT_SUBSTEP_WORK;
     private static final ModConfigSpec.BooleanValue BATCH_COLLIDER_UPDATES;
     private static final ModConfigSpec.IntValue WAKE_BLOCK_BURST;
+    private static final ModConfigSpec.DoubleValue GROUP_LINK_BLOCKS;
+    private static final ModConfigSpec.DoubleValue ABSURD_JUMP_BLOCKS;
+    private static final ModConfigSpec.DoubleValue ABSURD_SPEED;
+    private static final ModConfigSpec.DoubleValue POSE_GUARD_MARGIN;
 
     // Phase 7 — in-motion cost
     private static final ModConfigSpec.BooleanValue PHASE7_ENABLED;
@@ -98,6 +102,15 @@ public final class HullConfig {
                 .define("batchColliderUpdates", true);
         WAKE_BLOCK_BURST = b.comment("Wake a parked ship if this many of its blocks change in one tick (explosion-like)")
                 .defineInRange("wakeBlockBurst", 8, 1, 4096);
+        GROUP_LINK_BLOCKS = b.comment("Ships whose hulls are at most this many blocks apart park and wake as one group. "
+                + "Joints, nested assemblies, and contraptions link ships regardless of distance.")
+                .defineInRange("groupLinkBlocks", 3.0, 0.0, 64.0);
+        ABSURD_JUMP_BLOCKS = b.comment("Restore the last good pose when a ship moves farther than this in one tick")
+                .defineInRange("absurdJumpBlocks", 64.0, 1.0, 10000.0);
+        ABSURD_SPEED = b.comment("Restore the last good pose when linear speed (blocks/s) exceeds this")
+                .defineInRange("absurdSpeed", 250.0, 1.0, 100000.0);
+        POSE_GUARD_MARGIN = b.comment("Restore the last good pose when a ship comes within this many blocks of Sable's sub-level remove bounds")
+                .defineInRange("poseGuardMargin", 512.0, 0.0, 100000.0);
         b.pop();
 
         b.push("phase7");
@@ -186,6 +199,10 @@ public final class HullConfig {
     public static boolean skipDormantSubstepWork() { return SKIP_DORMANT_SUBSTEP_WORK.get(); }
     public static boolean batchColliderUpdates() { return BATCH_COLLIDER_UPDATES.get(); }
     public static int wakeBlockBurst() { return WAKE_BLOCK_BURST.get(); }
+    public static double groupLinkBlocks() { return GROUP_LINK_BLOCKS.get(); }
+    public static double absurdJumpBlocks() { return ABSURD_JUMP_BLOCKS.get(); }
+    public static double absurdSpeed() { return ABSURD_SPEED.get(); }
+    public static double poseGuardMargin() { return POSE_GUARD_MARGIN.get(); }
 
     public static boolean phase7() { return PHASE7_ENABLED.get(); }
     public static boolean simplifiedHullColliders() { return SIMPLIFIED_HULL_COLLIDERS.get(); }
