@@ -89,7 +89,9 @@ public final class JointLinks {
         Vector3d w1 = worldOf(a, p1);
         Vector3d w2 = worldOf(b, p2);
         if (w1 == null || w2 == null) return false;
-        return w1.distanceSquared(w2) < CLOSE_ANCHOR_BLOCKS * CLOSE_ANCHOR_BLOCKS;
+        // Adjacent plot blocks are about one block apart. Include that gap.
+        double limit = CLOSE_ANCHOR_BLOCKS * CLOSE_ANCHOR_BLOCKS + 1.0e-4;
+        return w1.distanceSquared(w2) <= limit;
     }
 
     private static Vector3dc anchorPos(PhysicsConstraintConfiguration<?> config, boolean first) {
