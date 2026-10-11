@@ -46,6 +46,8 @@ public abstract class SubLevelPhysicsStepMixin {
     @Inject(method = "tick", at = @At("HEAD"))
     private void ash$tickHead(SubLevelContainer container, CallbackInfo ci) {
         ash$tickStart = System.nanoTime();
+        ShipHullManager mgr = ShipHullManager.getOrNull(level);
+        if (mgr != null) mgr.notePhysicsGap(ash$tickStart);
     }
 
     @Inject(method = "tick", at = @At("RETURN"))

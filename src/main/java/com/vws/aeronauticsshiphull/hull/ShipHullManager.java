@@ -73,6 +73,10 @@ public final class ShipHullManager {
     public static Boolean blockEntityTickOverride = null;
     /** Phase 8 ship-sync A/B. null = config ship_hull.phase8.shipSync. */
     public static Boolean shipSyncOverride = null;
+    /** Kill switch. null = config ship_hull.safeMode. false forces parking on until restart. */
+    public static Boolean safeModeOverride = null;
+    private long lastPhysicsNanos;
+    private long lastLagLogNanos;
     /** True while this mod itself calls into the pipeline (suppresses wake hooks). Server thread only. */
     public static boolean INTERNAL = false;
     /** True while replaying deferred collider updates (bypasses the deferral hook). */
@@ -137,11 +141,26 @@ public final class ShipHullManager {
         this.globallyEnabled = v;
     }
 
+    public static boolean safeMode() {
+        if (safeModeOverride != null) return safeModeOverride;
+        return HullConfig.safeMode();
+    }
+
+    public static void anomaly(String message) {
+        LOGGER.warn("[shiphull] anomaly: {}", message);
+    }
+
     public void onSubLevelAdded(ServerSubLevel sub) {
         if (sub == null || sub.isRemoved()) return;
+        if (sub.getLevel() != this.level) {
+            anomaly("ignored ship " + sub.getUniqueId() + " registered from another level");
+            return;
+        }
         ShipHull existing = ships.get(sub.getUniqueId());
         if (existing != null) {
             existing.bind(sub);
+            wakeBody(sub);
+            wakePartnersIfParked(existing, "memberLoaded");
             return;
         }
         ShipHull hull = new ShipHull(sub);
@@ -149,15 +168,49 @@ public final class ShipHullManager {
         hull.setMode(HullMode.FULL, level.getGameTime());
         LOGGER.info("[shiphull] registered ship {} voxels={} interactive={}",
                 hull.id, hull.voxels.size(), hull.interactive.size());
+        wakeBody(sub);
+        wakePartnersIfParked(hull, "memberLoaded");
     }
 
     public void onSubLevelRemoved(ServerSubLevel sub) {
         if (sub == null) return;
-        ShipHull h = ships.remove(sub.getUniqueId());
-        if (h != null) {
-            ShipCadence.set(h.id, ShipCadence.Mode.FULL);
-            LOGGER.info("[shiphull] unregistered ship {}", h.id);
+        ShipHull h = ships.get(sub.getUniqueId());
+        if (h == null) return;
+        try {
+            wakePartnersIfParked(h, "memberUnloaded");
+        } catch (Throwable t) {
+            anomaly("member unload wake failed for " + h.id + ": " + t);
+            try {
+                wakeAllParked("memberUnloaded");
+            } catch (Throwable ignored) {
+                // The next tick tries again.
+            }
         }
+        ships.remove(sub.getUniqueId());
+        ShipCadence.set(h.id, ShipCadence.Mode.FULL);
+        LOGGER.info("[shiphull] unregistered ship {}", h.id);
+    }
+
+    /** A body saved asleep by a crash is woken as it loads. Parked mode itself is not saved. */
+    private void wakeBody(ServerSubLevel sub) {
+        try {
+            SubLevelPhysicsSystem phys = SubLevelPhysicsSystem.get(level);
+            if (phys == null) return;
+            PhysicsPipeline pipe = phys.getPipeline();
+            if (pipe != null) pipe.wakeUp(sub);
+        } catch (Throwable t) {
+            anomaly("wakeUp on add failed for " + sub.getUniqueId() + ": " + t);
+        }
+    }
+
+    private void wakePartnersIfParked(ShipHull hull, String why) {
+        refreshGroups();
+        ParkGroups.Group group = groupOf(hull);
+        boolean parked = false;
+        for (ShipHull member : group.members) {
+            if (member.mode == HullMode.PARKED) parked = true;
+        }
+        if (parked) wakeGroup(group.members, why, level.getGameTime());
     }
 
     public void onBlockChange(ServerSubLevel sub, BlockPos pos, BlockState oldSt, BlockState newSt) {
@@ -169,6 +222,13 @@ public final class ShipHullManager {
         if (hull == null) return;
         hull.blockChangesThisTick++;
         hull.onBlockChange(pos, oldSt, newSt);
+        if (hull.mode == HullMode.PARKED) {
+            try {
+                wakePartnersIfParked(hull, "blockChange");
+            } catch (Throwable t) {
+                anomaly("block change wake failed for " + hull.id + ": " + t);
+            }
+        }
     }
 
     // ---------------------------------------------------------------- Phase 6
@@ -468,12 +528,42 @@ public final class ShipHullManager {
 
     private boolean playerNear(ShipHull hull, double radius) {
         if (radius <= 0) return false;
-        AABB box = hull.worldHullAABB().inflate(radius);
+        AABB box = proximityBox(hull, radius);
+        if (box == null) return false;
         for (ServerPlayer p : level.players()) {
             if (p.isSpectator()) continue;
             if (box.contains(p.getX(), p.getY(), p.getZ())) return true;
         }
         return false;
+    }
+
+    /**
+     * Voxel hull when it is built. Otherwise a point box on the logical pose, so a player who logs
+     * in beside a ship whose voxels are not ready still wakes it.
+     */
+    private AABB proximityBox(ShipHull hull, double radius) {
+        if (hull.poseReady()) return hull.worldHullAABB().inflate(radius);
+        if (!readablePose(hull)) return null;
+        var pos = hull.subLevel().logicalPose().position();
+        return new AABB(pos.x() - radius, pos.y() - radius, pos.z() - radius,
+                pos.x() + radius, pos.y() + radius, pos.z() + radius);
+    }
+
+    /** A player who just logged in is not in the end-of-tick scan yet. */
+    public void wakeForPlayer(ServerPlayer player) {
+        if (player == null || player.isSpectator()) return;
+        refreshGroups();
+        double radius = HullConfig.wakeRadius();
+        for (ParkGroups.Group group : groupsThisTick) {
+            boolean hit = false;
+            for (ShipHull member : group.members) {
+                if (member.mode != HullMode.PARKED && member.mode != HullMode.CHEAP) continue;
+                AABB box = proximityBox(member, radius);
+                if (box != null && box.contains(player.getX(), player.getY(), player.getZ())) hit = true;
+                if (member.mode == HullMode.PARKED && !readablePose(member)) hit = true;
+            }
+            if (hit) wakeGroup(group.members, "playerNear", level.getGameTime());
+        }
     }
 
     private boolean isStill(ShipHull hull) {
@@ -601,19 +691,27 @@ public final class ShipHullManager {
 
     /** Park this ship and every sub-level linked to it. Returns the group size, or 0 if the group is not safe to freeze. */
     public int parkNow(ShipHull hull, long gameTime) {
+        if (safeMode()) {
+            anomaly("refused to park " + hull.id + "; safe-mode is on");
+            return 0;
+        }
         refreshGroups();
         ParkGroups.Group group = groupOf(hull);
         if (!group.parkEligible) {
-            LOGGER.warn("[shiphull] refused to park {}; a joint partner is not a known ship", hull.id);
+            anomaly("refused to park " + hull.id + "; a joint partner is not a known ship");
             return 0;
         }
         for (ShipHull member : group.members) {
             if (!readablePose(member)) {
-                LOGGER.warn("[shiphull] refused to park {}; group member {} has no pose", hull.id, member.id);
+                anomaly("refused to park " + hull.id + "; group member " + member.id + " has no pose");
                 return 0;
             }
             if (!built(member)) {
-                LOGGER.warn("[shiphull] refused to park {}; group member {} is unbuilt", hull.id, member.id);
+                anomaly("refused to park " + hull.id + "; group member " + member.id + " is unbuilt");
+                return 0;
+            }
+            if (badMass(member)) {
+                anomaly("refused to park " + hull.id + "; group member " + member.id + " has bad mass");
                 return 0;
             }
         }
@@ -649,6 +747,25 @@ public final class ShipHullManager {
         for (ParkGroups.Group group : groupsThisTick) wakeGroup(group.members, why, t);
     }
 
+    /**
+     * Called at the head of the physics tick, before the step. A long gap means the next step
+     * would integrate a huge dt against parked bodies, so those bodies are woken first.
+     */
+    public void notePhysicsGap(long nowNanos) {
+        long prev = lastPhysicsNanos;
+        lastPhysicsNanos = nowNanos;
+        if (prev == 0L) return;
+        int limit = HullConfig.lagWakeMillis();
+        if (limit <= 0) return;
+        long gapMs = (nowNanos - prev) / 1_000_000L;
+        if (gapMs < limit) return;
+        if (nowNanos - lastLagLogNanos > 1_000_000_000L) {
+            lastLagLogNanos = nowNanos;
+            anomaly("physics tick gap " + gapMs + " ms; waking parked ships");
+        }
+        wakeAllParked("lagSpike");
+    }
+
     private void refreshGroups() {
         for (ShipHull hull : ships.values()) hull.bumpPose();
         groupsThisTick = ParkGroups.build(ships.values(), HullConfig.groupLinkBlocks());
@@ -668,6 +785,16 @@ public final class ShipHullManager {
     /** Freeze or wake each connected group in this tick. Never leave a parked body tied to a live one. */
     private void updateGroups(long gameTime) {
         try {
+            if (safeMode()) {
+                for (ParkGroups.Group group : groupsThisTick) {
+                    boolean anyParked = false;
+                    for (ShipHull member : group.members) {
+                        if (member.mode == HullMode.PARKED) anyParked = true;
+                    }
+                    if (anyParked) wakeGroup(group.members, "safeMode", gameTime);
+                }
+                return;
+            }
             for (ParkGroups.Group group : groupsThisTick) {
                 if (group.members.isEmpty()) continue;
                 String why = wakeWhy(group);
@@ -706,7 +833,7 @@ public final class ShipHullManager {
                 }
             }
         } catch (Throwable t) {
-            LOGGER.warn("[shiphull] group update failed, waking parked ships: {}", t.toString());
+            anomaly("group update failed, waking parked ships: " + t);
             wakeAllOnError(gameTime);
         }
     }
@@ -731,27 +858,54 @@ public final class ShipHullManager {
     }
 
     private String wakeWhy(ParkGroups.Group group) {
+        boolean anyParked = false;
+        for (ShipHull member : group.members) {
+            if (member.mode == HullMode.PARKED) anyParked = true;
+        }
         for (ShipHull member : group.members) {
             if (member.wakeRequested) return "impulse:" + member.lastWakeReason;
+            if (member.mode == HullMode.PARKED && member.blockChangesThisTick > 0) return "blockChange";
             if (member.blockChangesThisTick >= HullConfig.wakeBlockBurst()) {
                 return "blockBurst=" + member.blockChangesThisTick;
             }
             if (member.piloted) return "piloted";
+            if (member.mode == HullMode.PARKED && !readablePose(member)) return "unreadablePose";
+            if (anyParked && badMass(member)) return "badMass";
             if (playerNear(member, HullConfig.wakeRadius())) return "playerNear";
             if (member.mode == HullMode.REBUILDING) return "rebuilding";
             if (movingContraption(member)) return "contraption";
         }
+        String entity = movingEntity(group);
+        if (entity != null) return entity;
         return outsideContact(group);
     }
 
     private boolean canPark(ParkGroups.Group group) {
-        if (!group.parkEligible) return false;
+        if (!group.parkEligible || safeMode()) return false;
         for (ShipHull member : group.members) {
             if (!built(member)) return false;
             if (!isStill(member)) return false;
             if (!readablePose(member)) return false;
+            if (badMass(member)) return false;
         }
         return true;
+    }
+
+    /** Null, non-finite, or non-positive mass, or a missing center of mass. */
+    private boolean badMass(ShipHull hull) {
+        ServerSubLevel sub = hull.subLevel();
+        if (sub == null || sub.isRemoved()) return true;
+        try {
+            MassTracker tracker = sub.getSelfMassTracker();
+            if (tracker == null) return true;
+            double mass = tracker.getMass();
+            if (!Double.isFinite(mass) || mass <= 0.0) return true;
+            var com = tracker.getCenterOfMass();
+            if (com == null) return true;
+            return !Double.isFinite(com.x()) || !Double.isFinite(com.y()) || !Double.isFinite(com.z());
+        } catch (Throwable t) {
+            return true;
+        }
     }
 
     private static boolean built(ShipHull member) {
@@ -815,8 +969,12 @@ public final class ShipHullManager {
         try {
             if (!(sub.getPlot() instanceof dev.ryanhcode.sable.sublevel.plot.ServerLevelPlot plot)) return false;
             var contraptions = plot.getContraptions();
-            if (contraptions == null || contraptions.isEmpty()) return false;
-            boolean moving = false;
+            if (contraptions == null || contraptions.isEmpty()) {
+                hull.contraptionSampled = false;
+                return false;
+            }
+            boolean moving = !hull.contraptionSampled;
+            hull.contraptionSampled = true;
             for (KinematicContraption contraption : contraptions) {
                 if (contraption instanceof net.minecraft.world.entity.Entity entity
                         && entity.getDeltaMovement().lengthSqr() > 1.0e-4) {
@@ -825,7 +983,7 @@ public final class ShipHullManager {
                 if (contraption instanceof ControlledContraptionEntity controlled) {
                     float angle = controlled.getAngle(1.0f);
                     Float previous = hull.contraptionAngles.put(controlled.getId(), angle);
-                    if (previous != null && Math.abs(angle - previous) > 0.05f) moving = true;
+                    if (previous == null || Math.abs(angle - previous) > 0.05f) moving = true;
                 }
             }
             return moving;
@@ -833,6 +991,29 @@ public final class ShipHullManager {
             hull.contraptionsUnreadable = true;
             return true;
         }
+    }
+
+    /**
+     * A minecart, train, or belt item moving through a parked (or nearly still) hull. Full ships
+     * that are still being piloted are not scanned.
+     */
+    private String movingEntity(ParkGroups.Group group) {
+        for (ShipHull member : group.members) {
+            if (member.mode != HullMode.PARKED && member.stillTicks < 10) continue;
+            AABB box = contactBox(member, 1.0);
+            if (box == null) continue;
+            try {
+                List<Entity> found = level.getEntities((Entity) null, box, entity -> {
+                    if (entity instanceof Player || !entity.isAlive()) return false;
+                    return entity.getDeltaMovement().lengthSqr() > 0.0025;
+                });
+                if (!found.isEmpty()) return "movingEntity";
+            } catch (Throwable t) {
+                anomaly("entity scan failed for " + member.id + ": " + t);
+                if (member.mode == HullMode.PARKED) return "movingEntity";
+            }
+        }
+        return null;
     }
 
     private boolean readablePose(ShipHull hull) {
@@ -1380,6 +1561,11 @@ public final class ShipHullManager {
         if (phase6() && globallyEnabled()) refreshGroups();
 
         for (ShipHull hull : ships.values()) {
+            if (hull.subLevel() != null && !hull.subLevel().isRemoved() && hull.subLevel().getLevel() != level) {
+                anomaly("ship " + hull.id + " left this level");
+                onSubLevelRemoved(hull.subLevel());
+                continue;
+            }
             if (!hull.enabled || hull.subLevel() == null || hull.subLevel().isRemoved()) continue;
             // Rapier may have written a new pose since the cached world AABB.
             hull.bumpPose();
@@ -1615,6 +1801,11 @@ public final class ShipHullManager {
         HullProfiler.EXPLOSIONS.incrementAndGet();
 
         promote(hull, HullMode.REBUILDING, level.getGameTime());
+        try {
+            wakeNow(hull, "explosion", level.getGameTime());
+        } catch (Throwable t) {
+            anomaly("explosion wake failed for " + hull.id + ": " + t);
+        }
 
         List<LongSet> comps = Connectivity.components(hull.voxels);
         if (comps.size() >= 2) {
@@ -1667,8 +1858,8 @@ public final class ShipHullManager {
             if (h.piloted) piloted++;
             voxels += h.voxels.size();
         }
-        return String.format("ships=%d cheap=%d parked=%d full=%d rebuilding=%d piloted=%d voxels=%d enabled=%s softSleep=%s bridge=%s demotesSuppressed=%d | %s | %s | %s",
+        return String.format("ships=%d cheap=%d parked=%d full=%d rebuilding=%d piloted=%d voxels=%d enabled=%s safeMode=%s softSleep=%s bridge=%s demotesSuppressed=%d | %s | %s | %s",
                 ships.size(), cheap, parked, full, rebuild, piloted, voxels,
-                globallyEnabled(), cheapSoftSleepEnabled(), ShipCadence.factoryBridgeActive(), demotesSuppressed, phase6Status(), phase7Status(), phase8Status(), HullProfiler.summary());
+                globallyEnabled(), safeMode(), cheapSoftSleepEnabled(), ShipCadence.factoryBridgeActive(), demotesSuppressed, phase6Status(), phase7Status(), phase8Status(), HullProfiler.summary());
     }
 }

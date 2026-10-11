@@ -91,11 +91,15 @@ public final class ShipHull {
     public final Quaterniond lastGoodRot = new Quaterniond();
     public boolean hasLastGoodPose;
     public boolean poseGuardLogged;
+    /** One anomaly when a teleport target inside the remove margin is refused as last-good. */
+    public boolean marginTeleportLogged;
     public int poseGuardStableTicks;
     /** {@code getContraptions()} threw this tick. The group treats that as a moving contraption. */
     public boolean contraptionsUnreadable;
     /** Previous bearing angle, keyed by contraption entity id, to notice a moving contraption. */
     public final Map<Integer, Float> contraptionAngles = new HashMap<>();
+    /** True after the first non-empty contraption sample. That first sample counts as moving. */
+    public boolean contraptionSampled;
 
     /** Local-space axis-aligned hull (block coords). */
     public int minX, minY, minZ, maxX, maxY, maxZ;

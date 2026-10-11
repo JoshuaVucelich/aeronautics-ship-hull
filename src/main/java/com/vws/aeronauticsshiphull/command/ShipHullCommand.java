@@ -44,6 +44,14 @@ public final class ShipHullCommand {
                 .then(Commands.literal("status").executes(ShipHullCommand::status))
                 .then(Commands.literal("enable").executes(c -> setEnabled(c, true)))
                 .then(Commands.literal("disable").executes(c -> setEnabled(c, false)))
+                .then(Commands.literal("safe-mode")
+                        .then(Commands.literal("on").executes(c -> setSafeMode(c, true)))
+                        .then(Commands.literal("off").executes(c -> setSafeMode(c, false)))
+                        .executes(c -> {
+                            boolean on = ShipHullManager.safeMode();
+                            c.getSource().sendSuccess(() -> Component.literal("safe-mode=" + on), false);
+                            return 1;
+                        }))
                 .then(Commands.literal("softsleep")
                         .then(Commands.literal("on").executes(c -> setSoftSleep(c, true)))
                         .then(Commands.literal("off").executes(c -> setSoftSleep(c, false)))
@@ -208,6 +216,18 @@ public final class ShipHullCommand {
         ShipHullManager.shipSyncOverride = on;
         c.getSource().sendSuccess(() -> Component.literal("shipSync=" + on
                 + " (pose snapshots and plot-entity sync every networkPeriodTicks for far unpiloted ships)"), true);
+        return 1;
+    }
+
+    private static int setSafeMode(CommandContext<CommandSourceStack> c, boolean on) {
+        ShipHullManager.safeModeOverride = on;
+        if (on) {
+            ShipHullManager.anomaly("safe-mode on");
+            mgr(c).wakeAllParked("safe-mode");
+        } else {
+            ShipHullManager.anomaly("safe-mode off");
+        }
+        c.getSource().sendSuccess(() -> Component.literal("safe-mode=" + on), true);
         return 1;
     }
 

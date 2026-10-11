@@ -15,7 +15,7 @@ Idle ships still park. A ship parks or wakes only together with every sub-level 
 
 Ships that registered with `voxels=0` rebuild the hull once the plot or the mass tracker is ready. A later scan runs when the plot's loaded chunk count changes and then holds for 40 ticks, or when the voxel hull is smaller than `plot.getBoundingBox()` and that box has not been scanned yet. A chunk that keeps loading and unloading at the plot edge does not rescan on every change. Each tick keeps the last sane pose. A non-finite pose, an angular speed past `absurdAngular` (default 80 rad/s; a 256 RPM bearing is about 26.8 rad/s and two stacked reach about 53.6), a position inside `poseGuardMargin` of Sable's remove bounds, or a jump past `absurdJumpBlocks` together with a speed past `absurdSpeed`, restores that pose, zeroes velocity, and logs it. A jump on its own, or a high speed on its own, stays. Sable 2.0.3 removes a sub-level when its box goes below `sub_level_remove_min` (-10000) or above `sub_level_remove_max` (100000). The 512 margin restores below -9488 or above 99488, still inside the range Sable keeps. An external teleport, including `/tp` and Sable's center-of-mass correction, becomes the new last-good pose. A teleport whose target is already inside that margin is not saved. With no last-good pose the guard leaves the ship alone.
 
-Parked mode is not saved. A reload starts every ship in FULL.
+Parked mode is not saved. A reload starts every ship in FULL. Later failure cases (a half-loaded group, a crash mid-park, safe-mode) are in `docs/FAILURE_SCENARIOS.md`.
 
 `/shiphull mode <uuid> PARKED` and `FULL` apply to the whole group. `/shiphull list` builds the groups once per command and appends `group=<size>`.
 

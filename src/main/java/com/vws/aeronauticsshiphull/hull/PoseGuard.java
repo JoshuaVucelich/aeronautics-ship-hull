@@ -36,7 +36,14 @@ public final class PoseGuard {
         if (hull == null || pos == null || rot == null) return;
         if (!Double.isFinite(pos.x()) || !Double.isFinite(pos.y()) || !Double.isFinite(pos.z())) return;
         if (!Double.isFinite(rot.x()) || !Double.isFinite(rot.y()) || !Double.isFinite(rot.z()) || !Double.isFinite(rot.w())) return;
-        if (insideRemoveMargin(pos.y())) return;
+        if (insideRemoveMargin(pos.y())) {
+            if (!hull.marginTeleportLogged) {
+                hull.marginTeleportLogged = true;
+                LOGGER.warn("[shiphull] anomaly: teleport of {} at y={} is inside the remove margin and was not saved",
+                        hull.id, pos.y());
+            }
+            return;
+        }
         hull.lastGoodPos.set(pos);
         hull.lastGoodRot.set(rot);
         hull.hasLastGoodPose = true;

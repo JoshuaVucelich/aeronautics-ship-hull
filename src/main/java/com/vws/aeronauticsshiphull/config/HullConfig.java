@@ -4,6 +4,8 @@ import net.neoforged.neoforge.common.ModConfigSpec;
 
 public final class HullConfig {
     public static final ModConfigSpec SPEC;
+    private static final ModConfigSpec.BooleanValue SAFE_MODE;
+    private static final ModConfigSpec.IntValue LAG_WAKE_MILLIS;
     private static final ModConfigSpec.BooleanValue ENABLED;
     private static final ModConfigSpec.IntValue CHEAP_PERIOD_TICKS;
     private static final ModConfigSpec.IntValue QUIET_TICKS_BEFORE_CHEAP;
@@ -60,6 +62,13 @@ public final class HullConfig {
     static {
         ModConfigSpec.Builder b = new ModConfigSpec.Builder();
         b.push("ship_hull");
+        SAFE_MODE = b.comment("Global kill switch. When true, every parked ship is woken and nothing new is parked. "
+                + "/shiphull safe-mode on does the same immediately. /shiphull safe-mode off forces parking back on "
+                + "until the next restart, even when this value is true.")
+                .define("safeMode", false);
+        LAG_WAKE_MILLIS = b.comment("Wake every parked ship before the physics step when the gap since the previous "
+                + "physics tick is at least this many milliseconds. The first tick after startup is ignored. 0 disables the check.")
+                .defineInRange("lagWakeMillis", 250, 0, 60000);
         ENABLED = b.comment("Master switch for hull cheap-physics diversion").define("enabled", true);
         CHEAP_PERIOD_TICKS = b.comment("Ticks between CHEAP integrator steps (2=10Hz, 4=5Hz)")
                 .defineInRange("cheapPeriodTicks", 2, 1, 20);
@@ -189,6 +198,8 @@ public final class HullConfig {
         SPEC = b.build();
     }
 
+    public static boolean safeMode() { return SAFE_MODE.get(); }
+    public static int lagWakeMillis() { return LAG_WAKE_MILLIS.get(); }
     public static boolean enabled() { return ENABLED.get(); }
     public static int cheapPeriodTicks() { return CHEAP_PERIOD_TICKS.get(); }
     public static int quietTicksBeforeCheap() { return QUIET_TICKS_BEFORE_CHEAP.get(); }

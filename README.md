@@ -2,7 +2,7 @@
 
 NeoForge mod for Minecraft 1.21.1. Server-side ship hull physics for Create ships running on Aeronautics and Sable.
 
-This tree is `1.0.0-phase8-grouppark.4`. Mod id `aeronautics_ship_hull`. License [CC0 1.0](LICENSE).
+This tree is `1.0.0-phase8-hardening.1`. Mod id `aeronautics_ship_hull`. License [CC0 1.0](LICENSE).
 
 Pinned versions:
 
@@ -67,7 +67,10 @@ Needs permission level 2.
 - `/shiphull explode <uuid> <pos> <radius>` or `explode <uuid> here <radius>`
 - `/shiphull route <uuid> add|clear|start|impulse ...`
 - `/shiphull nest <parent> <child> <lx> <ly> <lz>`
+- `/shiphull safe-mode` and `safe-mode on|off`. On wakes every parked ship and refuses new parks. Off forces parking back on until restart, even when `ship_hull.safeMode` is true in the config.
 - `/shiphull softsleep on|off`, `phase6 on|off`, `phase7 on|off`, `phase8 on|off`, `colliderCache on|off`, `contraptionTick on|off`, `blockEntityTick on|off`, `shipSync on|off`
+
+Failure cases for parked groups, including chunk unload, a crash mid-park, a player login, contraptions, lag spikes, and a missing mixin target, are written up in `docs/FAILURE_SCENARIOS.md`. `ship_hull.safeMode` is the config kill switch. Parked mode is still not saved.
 
 ## Build
 
