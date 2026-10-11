@@ -49,6 +49,10 @@ public final class HullProfiler {
     public static final AtomicLong BLOCK_ENTITY_SKIPS = new AtomicLong();
     public static final AtomicLong ACTOR_TICK_SKIPS = new AtomicLong();
     public static final AtomicLong ENTITY_TICK_SKIPS = new AtomicLong();
+    /** Pose snapshots withheld inside sendMovementUpdates. */
+    public static final AtomicLong POSE_SEND_SKIPS = new AtomicLong();
+    /** ServerEntity.sendChanges withheld for non-player entities on a throttled plot. */
+    public static final AtomicLong ENTITY_SYNC_SKIPS = new AtomicLong();
 
     public static void reset() {
         RAPIER_STEPS.set(0);
@@ -90,6 +94,8 @@ public final class HullProfiler {
         BLOCK_ENTITY_SKIPS.set(0);
         ACTOR_TICK_SKIPS.set(0);
         ENTITY_TICK_SKIPS.set(0);
+        POSE_SEND_SKIPS.set(0);
+        ENTITY_SYNC_SKIPS.set(0);
     }
 
     public static String phase6Summary() {
@@ -109,7 +115,9 @@ public final class HullProfiler {
                 + String.format(" | contraption poseSkips=%d entitySkips=%d heatSkips=%d",
                 CONTRAPTION_POSE_SKIPS.get(), CONTRAPTION_ENTITY_SKIPS.get(), HEATMAP_SKIPS.get())
                 + String.format(" | be blockSkips=%d actorSkips=%d entitySkips=%d",
-                BLOCK_ENTITY_SKIPS.get(), ACTOR_TICK_SKIPS.get(), ENTITY_TICK_SKIPS.get());
+                BLOCK_ENTITY_SKIPS.get(), ACTOR_TICK_SKIPS.get(), ENTITY_TICK_SKIPS.get())
+                + String.format(" | sync poseSkips=%d entitySyncSkips=%d",
+                POSE_SEND_SKIPS.get(), ENTITY_SYNC_SKIPS.get());
     }
 
     public static String summary() {

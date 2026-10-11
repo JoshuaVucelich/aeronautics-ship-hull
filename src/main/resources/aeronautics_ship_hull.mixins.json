@@ -14,6 +14,8 @@
     "LevelBlockEntityTickMixin",
     "ServerLevelEntityTickMixin",
     "SubLevelPhysicsSystemMixin",
+    "SubLevelTrackingMixin",
+    "ServerEntitySyncMixin",
     "accessor.RapierPhysicsPipelineAccessor",
     "accessor.Rapier3DInvoker"
   ],

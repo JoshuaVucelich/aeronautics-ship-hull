@@ -47,3 +47,16 @@ Phase 4 emitter: `ShipCadence` (+ FactoryCadence reflection bridge).
 **Block-entity tick (1.0.0-phase8-combined):** `/shiphull blockEntityTick off|on`.
 - Sable forces ship plot chunks to stay in ticking range. On a parked ship with no player within the wake radius, block entities and Sable block-entity actors tick every 4 ticks. The decision is cached per chunk for the tick.
 - Non-player entities on a parked ship's world pose do not tick until a player is within the wake radius, so items stay where they are and do not despawn. Players are never skipped. Moving, cheap, and piloted ships keep a full tick.
+
+**Ship sync (1.0.0-phase8-combined):** pose and plot-entity packets (`/shiphull shipSync off|on`).
+- `sendMovementUpdates` compares `logicalPose` to `lastNetworkedPose` and, when they differ, clears
+  `lastNetworkedStopped` and queues a MOVE. Phase 7 sets that flag in the post-tick, after tracking,
+  so a moving ship still sent every tick.
+- On non-pulse ticks the comparison is forced true and the ship is marked stopped first, so Sable
+  continues without copying `lastNetworkedPose` or enqueueing a packet. Pulse ticks (default every 10,
+  spread by ship id) run the real comparison and send the current pose and velocity.
+- `ServerEntity.sendChanges` for non-player entities inside that ship's world box, or still stored in
+  the plot chunk, uses the same period. Sable moves riding entities to the ship pose, so the world box
+  is the one that matters. Players, and any entity carrying a player, stay at full rate.
+- Piloted, REBUILDING, and ships with a player inside simplifiedRadius (48) stay at full rate.
+- Start-tracking full sync and bounds packets are unchanged.

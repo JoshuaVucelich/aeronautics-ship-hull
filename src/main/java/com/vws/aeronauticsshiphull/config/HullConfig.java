@@ -36,6 +36,8 @@ public final class HullConfig {
     private static final ModConfigSpec.BooleanValue THROTTLE_NETWORK;
     private static final ModConfigSpec.IntValue NETWORK_PERIOD_TICKS;
     private static final ModConfigSpec.DoubleValue SIMPLIFIED_RADIUS;
+    // Phase 8 — ship sync (this branch)
+    private static final ModConfigSpec.BooleanValue SHIP_SYNC;
 
     // Phase 8 — Rapier step LOD
     private static final ModConfigSpec.BooleanValue PHASE8_ENABLED;
@@ -134,6 +136,10 @@ public final class HullConfig {
                 .define("distantSolver", true);
         DISTANT_SOLVER_ITERATIONS = b.comment("Solver iterations used by distantSolver (Sable default is 18)")
                 .defineInRange("distantSolverIterations", 8, 1, 64);
+        SHIP_SYNC = b.comment("Hold Sable pose snapshots and plot-entity sync to networkPeriodTicks for unpiloted ships "
+                + "farther than simplifiedRadius. The gate runs inside sendMovementUpdates, because setting "
+                + "lastNetworkedStopped after tracking does not survive a moving pose. A/B: /shiphull shipSync off|on")
+                .define("shipSync", true);
         b.pop();
         b.push("colliderCache");
         COLLIDER_CACHE = b.comment("Incremental hull bounds, cached block classification, and section-batched collider replay")
@@ -190,6 +196,7 @@ public final class HullConfig {
     public static int distantCheapPeriodTicks() { return DISTANT_CHEAP_PERIOD.get(); }
     public static boolean throttleNetwork() { return THROTTLE_NETWORK.get(); }
     public static int networkPeriodTicks() { return NETWORK_PERIOD_TICKS.get(); }
+    public static boolean shipSync() { return SHIP_SYNC.get(); }
 
     public static boolean phase8() { return PHASE8_ENABLED.get(); }
     public static boolean coastSeparated() { return COAST_SEPARATED.get(); }

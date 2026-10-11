@@ -84,6 +84,15 @@ public final class ShipHullCommand {
                             c.getSource().sendSuccess(() -> Component.literal("blockEntityTick=" + ShipHullManager.blockEntityTick()), false);
                             return 1;
                         }))
+                .then(Commands.literal("shipSync")
+                        .then(Commands.literal("on").executes(c -> setShipSync(c, true)))
+                        .then(Commands.literal("off").executes(c -> setShipSync(c, false)))
+                        .executes(c -> {
+                            c.getSource().sendSuccess(() -> Component.literal("shipSync=" + mgr(c).shipSyncEnabled()
+                                    + " poseSkips=" + HullProfiler.POSE_SEND_SKIPS.get()
+                                    + " entitySyncSkips=" + HullProfiler.ENTITY_SYNC_SKIPS.get()), false);
+                            return 1;
+                        }))
                 .then(Commands.literal("profile")
                         .executes(ShipHullCommand::profile)
                         .then(Commands.literal("reset").executes(c -> { HullProfiler.reset(); c.getSource().sendSuccess(() -> Component.literal("profile reset"), false); return 1; })))
@@ -192,6 +201,13 @@ public final class ShipHullCommand {
     private static int setPhase8(CommandContext<CommandSourceStack> c, boolean on) {
         ShipHullManager.phase8Override = on;
         c.getSource().sendSuccess(() -> Component.literal("phase8=" + on + " (coast separated FULL ships / distant solver iterations)"), true);
+        return 1;
+    }
+
+    private static int setShipSync(CommandContext<CommandSourceStack> c, boolean on) {
+        ShipHullManager.shipSyncOverride = on;
+        c.getSource().sendSuccess(() -> Component.literal("shipSync=" + on
+                + " (pose snapshots and plot-entity sync every networkPeriodTicks for far unpiloted ships)"), true);
         return 1;
     }
 

@@ -30,7 +30,7 @@ Phase 7 is on by default. `/shiphull phase7 off` and `on` flip it in game.
 - An unpiloted FULL ship farther than 48 blocks from a player uses one AABB Rapier collider instead of per-block voxels.
 - Mass is cached while that simplified collider is on, so `updateMergedMassData` is skipped.
 - Distant CHEAP ships step every 4 ticks when nobody is within 64 blocks.
-- Unpiloted ships farther than 48 blocks send a network pose every 10 ticks.
+- Unpiloted ships farther than 48 blocks send a network pose every 10 ticks. Phase 7 only set `lastNetworkedStopped` after tracking, and Sable clears that flag when the pose has moved, so a moving ship still sent every tick. Phase 8 (`/shiphull shipSync off|on`) withholds the snapshot inside `sendMovementUpdates`, and withholds `ServerEntity.sendChanges` for non-player entities inside that ship's world box, on the same period. Players, piloted ships, rebuilding ships, and ships with a player inside 48 blocks stay at full rate. A player who starts tracking still gets a full sync.
 - Per-block collider updates wait while the hull is simplified or moving in CHEAP.
 - Piloted ships, ships near a player, and REBUILDING ships keep full voxel colliders.
 
@@ -45,6 +45,8 @@ Collider cache is on by default. `/shiphull colliderCache off` and `on` flip it 
 Contraption tick cuts are on by default. `/shiphull contraptionTick off` and `on` flip them. A contraption welded to a parked ship does not re-upload its pose, and the ship's splitting heat map does not run. The contraption entity itself ticks every 4 ticks while the ship is parked and no player is within 16 blocks or riding it.
 
 Block-entity tick cuts are on by default. `/shiphull blockEntityTick off` and `on` flip them. A parked ship with no player within 16 blocks ticks its block entities every 4 ticks. Item entities and other non-players on the ship's world pose do not tick until someone comes within that radius, so they stay put. A player, a moving ship, and a piloted ship keep the full tick.
+
+Ship sync is on by default. `/shiphull shipSync off` and `on` flip it. Far unpiloted ships send a pose and their non-player entity deltas every 10 ticks. The gate sits inside `sendMovementUpdates`, so a moving ship does not clear the stopped flag after tracking and send every tick. Piloted ships, rebuilding ships, and ships with a player inside 48 blocks stay at full rate. Players are never skipped.
 
 `/shiphull nest` pins a child ship to a parent ship with a local offset, for a bearing or crane. Each tick the child pose follows the parent. If the child is in Rapier, it is teleported to match. The two ships stay separate bodies.
 
@@ -65,7 +67,7 @@ Needs permission level 2.
 - `/shiphull explode <uuid> <pos> <radius>` or `explode <uuid> here <radius>`
 - `/shiphull route <uuid> add|clear|start|impulse ...`
 - `/shiphull nest <parent> <child> <lx> <ly> <lz>`
-- `/shiphull softsleep on|off`, `phase6 on|off`, `phase7 on|off`, `phase8 on|off`, `colliderCache on|off`, `contraptionTick on|off`, `blockEntityTick on|off`
+- `/shiphull softsleep on|off`, `phase6 on|off`, `phase7 on|off`, `phase8 on|off`, `colliderCache on|off`, `contraptionTick on|off`, `blockEntityTick on|off`, `shipSync on|off`
 
 ## Build
 
@@ -75,4 +77,4 @@ Java 21.
 ./gradlew build
 ```
 
-Create, Ponder, Flywheel, and Registrate resolve from Maven. Sable 2.0.5 resolves from `maven.ryanhcode.dev`. Aeronautics 1.3.2, Simulated 1.3.2, and the Sable companion and Rapier jars are `compileOnly` files. `build.gradle` expects them under `../create-perf-libs-1.21.1/extracted/`.
+Create, Ponder, Flywheel, and Registrate resolve from Maven. Sable 2.0.5 resolves from `maven.ryanhcode.dev`. Aeronautics 1.3.2, Simulated 1.3.2, and the Sable companion and Rapier jars are `compileOnly` files. `build.gradle` expects them under `../create-perf-libs-1.21.1/extracted/`, or pass `-PperfLibsDir=` to point somewhere else.
