@@ -43,6 +43,8 @@ public final class HullConfig {
     private static final ModConfigSpec.IntValue COAST_REAL_STEP_EVERY;
     private static final ModConfigSpec.BooleanValue DISTANT_SOLVER;
     private static final ModConfigSpec.IntValue DISTANT_SOLVER_ITERATIONS;
+    private static final ModConfigSpec.BooleanValue COLLIDER_CACHE;
+    private static final ModConfigSpec.IntValue COLLIDER_SECTION_REPLAY_AT;
 
     static {
         ModConfigSpec.Builder b = new ModConfigSpec.Builder();
@@ -129,6 +131,13 @@ public final class HullConfig {
         DISTANT_SOLVER_ITERATIONS = b.comment("Solver iterations used by distantSolver (Sable default is 18)")
                 .defineInRange("distantSolverIterations", 8, 1, 64);
         b.pop();
+        b.push("colliderCache");
+        COLLIDER_CACHE = b.comment("Incremental hull bounds, cached block classification, and section-batched collider replay")
+                .define("enabled", true);
+        COLLIDER_SECTION_REPLAY_AT = b.comment("When at least this many deferred collider cells wake at once, replay each dirty 16³ section "
+                + "with one chunk upload instead of a native changeBlock per cell")
+                .defineInRange("sectionReplayAt", 48, 1, 4096);
+        b.pop();
         b.pop();
         SPEC = b.build();
     }
@@ -169,6 +178,8 @@ public final class HullConfig {
     public static int coastRealStepEvery() { return COAST_REAL_STEP_EVERY.get(); }
     public static boolean distantSolver() { return DISTANT_SOLVER.get(); }
     public static int distantSolverIterations() { return DISTANT_SOLVER_ITERATIONS.get(); }
+    public static boolean colliderCache() { return COLLIDER_CACHE.get(); }
+    public static int colliderSectionReplayAt() { return COLLIDER_SECTION_REPLAY_AT.get(); }
 
     private HullConfig() {}
 }

@@ -39,6 +39,10 @@ public final class HullProfiler {
     public static final AtomicLong COAST_SKIPS = new AtomicLong();
     public static final AtomicLong COAST_INTEGRATIONS = new AtomicLong();
     public static final AtomicLong SOLVER_LOD_TICKS = new AtomicLong();
+    // Collider cache
+    public static final AtomicLong BOUNDS_INCREMENTAL = new AtomicLong();
+    public static final AtomicLong BOUNDS_FULL_SCANS = new AtomicLong();
+    public static final AtomicLong COLLIDER_SECTION_REPLAYS = new AtomicLong();
 
     public static void reset() {
         RAPIER_STEPS.set(0);
@@ -71,6 +75,9 @@ public final class HullProfiler {
         COAST_SKIPS.set(0);
         COAST_INTEGRATIONS.set(0);
         SOLVER_LOD_TICKS.set(0);
+        BOUNDS_INCREMENTAL.set(0);
+        BOUNDS_FULL_SCANS.set(0);
+        COLLIDER_SECTION_REPLAYS.set(0);
     }
 
     public static String phase6Summary() {
@@ -84,7 +91,9 @@ public final class HullProfiler {
                 HULL_AABB_APPLIES.get(), HULL_AABB_RESTORES.get(), MASS_CACHE_SKIPS.get(),
                 DISTANT_CHEAP_STEPS.get(), NETWORK_THROTTLES.get(), BLOCK_COLLIDER_SKIPS.get())
                 + String.format(" | p8 coastSkips=%d coastIntegrations=%d solverLod=%d",
-                COAST_SKIPS.get(), COAST_INTEGRATIONS.get(), SOLVER_LOD_TICKS.get());
+                COAST_SKIPS.get(), COAST_INTEGRATIONS.get(), SOLVER_LOD_TICKS.get())
+                + String.format(" | collider boundsIncr=%d boundsScan=%d sectionReplays=%d",
+                BOUNDS_INCREMENTAL.get(), BOUNDS_FULL_SCANS.get(), COLLIDER_SECTION_REPLAYS.get());
     }
 
     public static String summary() {

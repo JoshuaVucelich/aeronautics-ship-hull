@@ -3,8 +3,10 @@ package com.vws.aeronauticsshiphull.hull;
 import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 import org.joml.Quaterniond;
@@ -95,6 +97,10 @@ public final class ShipHull {
     private int poseGen;
     private int worldBoxGen = Integer.MIN_VALUE;
     private AABB worldBox;
+
+    /** State-only interactive classification. BlockStates are flyweights, so this stays small. */
+    private static final Map<BlockState, InteractiveCell.Kind> KIND_BY_STATE = new HashMap<>();
+    private static final Set<BlockState> NOT_INTERACTIVE = new HashSet<>();
 
     public ShipHull(ServerSubLevel sub) {
         this.subLevel = sub;
@@ -213,32 +219,87 @@ public final class ShipHull {
     }
 
     public static InteractiveCell.Kind classify(BlockState st, BlockEntity be) {
+        InteractiveCell.Kind cached = KIND_BY_STATE.get(st);
+        if (cached != null) return cached;
+        if (be == null && NOT_INTERACTIVE.contains(st)) return null;
         Block b = st.getBlock();
-        if (b instanceof ChestBlock || be instanceof ChestBlockEntity) return InteractiveCell.Kind.CHEST;
-        String path = st.getBlock().builtInRegistryHolder().key().location().getPath();
-        if (path.contains("seat") || path.contains("chair")) return InteractiveCell.Kind.SEAT;
-        if (path.contains("bearing") || path.contains("swivel")) return InteractiveCell.Kind.BEARING;
-        if (path.contains("engine") || path.contains("propeller") || path.contains("burner")) return InteractiveCell.Kind.ENGINE;
-        if (be != null && (path.contains("chest") || path.contains("barrel") || path.contains("shulker"))) {
-            return InteractiveCell.Kind.CHEST;
+        InteractiveCell.Kind kind = null;
+        if (b instanceof ChestBlock || be instanceof ChestBlockEntity) kind = InteractiveCell.Kind.CHEST;
+        else {
+            String path = st.getBlock().builtInRegistryHolder().key().location().getPath();
+            if (path.contains("seat") || path.contains("chair")) kind = InteractiveCell.Kind.SEAT;
+            else if (path.contains("bearing") || path.contains("swivel")) kind = InteractiveCell.Kind.BEARING;
+            else if (path.contains("engine") || path.contains("propeller") || path.contains("burner")) kind = InteractiveCell.Kind.ENGINE;
+            else if (be != null && (path.contains("chest") || path.contains("barrel") || path.contains("shulker"))) {
+                kind = InteractiveCell.Kind.CHEST;
+            }
         }
-        return null;
+        if (kind != null) KIND_BY_STATE.put(st, kind);
+        else if (be == null) NOT_INTERACTIVE.add(st);
+        return kind;
     }
 
     public void onBlockChange(BlockPos pos, BlockState oldState, BlockState newState) {
         long key = pos.asLong();
         boolean wasSolid = !oldState.isAir();
         boolean isSolid = !newState.isAir();
+        if (!com.vws.aeronauticsshiphull.hull.ShipHullManager.colliderCache()) {
+            if (wasSolid && !isSolid) {
+                voxels.remove(key);
+                interactive.remove(key);
+            } else if (isSolid) {
+                voxels.add(key);
+                InteractiveCell.Kind kind = classify(newState, null);
+                if (kind != null) interactive.put(key, new InteractiveCell(pos.immutable(), kind, newState));
+                else interactive.remove(key);
+            }
+            recomputeHullBounds();
+            com.vws.aeronauticsshiphull.profile.HullProfiler.BOUNDS_FULL_SCANS.incrementAndGet();
+            return;
+        }
         if (wasSolid && !isSolid) {
             voxels.remove(key);
             interactive.remove(key);
-        } else if (isSolid) {
-            voxels.add(key);
+            if (voxels.isEmpty()) {
+                hullValid = false;
+            } else if (!hullValid || onHullBoundary(pos.getX(), pos.getY(), pos.getZ())) {
+                recomputeHullBounds();
+                com.vws.aeronauticsshiphull.profile.HullProfiler.BOUNDS_FULL_SCANS.incrementAndGet();
+            } else {
+                com.vws.aeronauticsshiphull.profile.HullProfiler.BOUNDS_INCREMENTAL.incrementAndGet();
+            }
+            return;
+        }
+        if (isSolid) {
+            boolean added = voxels.add(key);
             InteractiveCell.Kind kind = classify(newState, null);
             if (kind != null) interactive.put(key, new InteractiveCell(pos.immutable(), kind, newState));
             else interactive.remove(key);
+            if (added) {
+                expandHullBounds(pos.getX(), pos.getY(), pos.getZ());
+                com.vws.aeronauticsshiphull.profile.HullProfiler.BOUNDS_INCREMENTAL.incrementAndGet();
+            }
         }
-        recomputeHullBounds();
+    }
+
+    private boolean onHullBoundary(int x, int y, int z) {
+        return x == minX || x == maxX || y == minY || y == maxY || z == minZ || z == maxZ;
+    }
+
+    private void expandHullBounds(int x, int y, int z) {
+        if (!hullValid) {
+            minX = maxX = x;
+            minY = maxY = y;
+            minZ = maxZ = z;
+            hullValid = true;
+            return;
+        }
+        if (x < minX) minX = x;
+        if (y < minY) minY = y;
+        if (z < minZ) minZ = z;
+        if (x > maxX) maxX = x;
+        if (y > maxY) maxY = y;
+        if (z > maxZ) maxZ = z;
     }
 
     public InteractiveCell lookupLocal(BlockPos local) {
