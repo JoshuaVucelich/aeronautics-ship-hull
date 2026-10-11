@@ -43,3 +43,7 @@ Phase 4 emitter: `ShipCadence` (+ FactoryCadence reflection bridge).
 - Kinematic contraptions on a PARKED ship, or on a settled CHEAP ship, skip the per-substep pose upload into Rapier.
 - Dormant ships skip the splitting heat-map walk.
 - Create contraption entities on a parked ship with no player nearby and no player passenger tick every 4 ticks. A player passenger or a player within the wake radius keeps every-tick updates.
+
+**Block-entity tick (1.0.0-phase8-combined):** `/shiphull blockEntityTick off|on`.
+- Sable forces ship plot chunks to stay in ticking range. On a parked ship with no player within the wake radius, block entities and Sable block-entity actors tick every 4 ticks. The decision is cached per chunk for the tick.
+- Non-player entities on a parked ship's world pose do not tick until a player is within the wake radius, so items stay where they are and do not despawn. Players are never skipped. Moving, cheap, and piloted ships keep a full tick.

@@ -77,6 +77,13 @@ public final class ShipHullCommand {
                             c.getSource().sendSuccess(() -> Component.literal("contraptionTick=" + ShipHullManager.contraptionTick()), false);
                             return 1;
                         }))
+                .then(Commands.literal("blockEntityTick")
+                        .then(Commands.literal("on").executes(c -> setBlockEntityTick(c, true)))
+                        .then(Commands.literal("off").executes(c -> setBlockEntityTick(c, false)))
+                        .executes(c -> {
+                            c.getSource().sendSuccess(() -> Component.literal("blockEntityTick=" + ShipHullManager.blockEntityTick()), false);
+                            return 1;
+                        }))
                 .then(Commands.literal("profile")
                         .executes(ShipHullCommand::profile)
                         .then(Commands.literal("reset").executes(c -> { HullProfiler.reset(); c.getSource().sendSuccess(() -> Component.literal("profile reset"), false); return 1; })))
@@ -167,6 +174,12 @@ public final class ShipHullCommand {
     private static int setContraptionTick(CommandContext<CommandSourceStack> c, boolean on) {
         ShipHullManager.contraptionTickOverride = on;
         c.getSource().sendSuccess(() -> Component.literal("contraptionTick=" + on + " (parked pose upload skip / heat map skip / entity tick period)"), true);
+        return 1;
+    }
+
+    private static int setBlockEntityTick(CommandContext<CommandSourceStack> c, boolean on) {
+        ShipHullManager.blockEntityTickOverride = on;
+        c.getSource().sendSuccess(() -> Component.literal("blockEntityTick=" + on + " (parked plot block entities every N ticks, entities frozen until a player is near)"), true);
         return 1;
     }
 

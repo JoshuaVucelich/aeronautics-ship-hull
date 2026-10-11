@@ -61,6 +61,8 @@ public final class ShipHullManager {
     public static Boolean colliderCacheOverride = null;
     /** Contraption-tick A/B switch (null = config). */
     public static Boolean contraptionTickOverride = null;
+    /** Block-entity tick A/B switch (null = config). */
+    public static Boolean blockEntityTickOverride = null;
     /** True while this mod itself calls into the pipeline (suppresses wake hooks). Server thread only. */
     public static boolean INTERNAL = false;
     /** True while replaying deferred collider updates (bypasses the deferral hook). */
@@ -72,6 +74,9 @@ public final class ShipHullManager {
     private boolean stepRanSinceSync = true;
     /** Set when this tick's Rapier step was replaced by coasting. Consumed in endTick. */
     private boolean coastedThisTick;
+    /** World AABBs of parked unattended ships, rebuilt once per tick. */
+    private final ArrayList<AABB> parkedWorldBoxes = new ArrayList<>();
+    private long parkedWorldTick = Long.MIN_VALUE;
 
     private ShipHullManager(ServerLevel level) {
         this.level = level;
@@ -198,6 +203,36 @@ public final class ShipHullManager {
             if (h.worldHullAABB().inflate(2.0).contains(x, y, z)) return h;
         }
         return null;
+    }
+
+    public static boolean blockEntityTick() {
+        return blockEntityTickOverride != null ? blockEntityTickOverride : HullConfig.blockEntityTick();
+    }
+
+    public boolean isPlayerNear(ShipHull hull, double radius) {
+        return playerNear(hull, radius);
+    }
+
+    /**
+     * True when a world-space point sits on a parked ship nobody is near.
+     * Sable moves riding entities to the ship pose, so their chunk is not the storage plot.
+     */
+    public boolean parkedUnattendedContains(double x, double y, double z) {
+        if (!blockEntityTick() || !globallyEnabled()) return false;
+        long now = level.getGameTime();
+        if (parkedWorldTick != now) {
+            parkedWorldTick = now;
+            parkedWorldBoxes.clear();
+            for (ShipHull hull : ships.values()) {
+                if (!hull.enabled || hull.mode != HullMode.PARKED || hull.subLevel() == null) continue;
+                if (playerNear(hull, HullConfig.wakeRadius())) continue;
+                parkedWorldBoxes.add(hull.worldHullAABB().inflate(2.0));
+            }
+        }
+        for (AABB box : parkedWorldBoxes) {
+            if (box.contains(x, y, z)) return true;
+        }
+        return false;
     }
 
     /** CHEAP/PARKED ship whose substep work (begin/mass merge/pose readback) Sable may skip.

@@ -46,6 +46,9 @@ public final class HullProfiler {
     public static final AtomicLong CONTRAPTION_POSE_SKIPS = new AtomicLong();
     public static final AtomicLong CONTRAPTION_ENTITY_SKIPS = new AtomicLong();
     public static final AtomicLong HEATMAP_SKIPS = new AtomicLong();
+    public static final AtomicLong BLOCK_ENTITY_SKIPS = new AtomicLong();
+    public static final AtomicLong ACTOR_TICK_SKIPS = new AtomicLong();
+    public static final AtomicLong ENTITY_TICK_SKIPS = new AtomicLong();
 
     public static void reset() {
         RAPIER_STEPS.set(0);
@@ -84,6 +87,9 @@ public final class HullProfiler {
         CONTRAPTION_POSE_SKIPS.set(0);
         CONTRAPTION_ENTITY_SKIPS.set(0);
         HEATMAP_SKIPS.set(0);
+        BLOCK_ENTITY_SKIPS.set(0);
+        ACTOR_TICK_SKIPS.set(0);
+        ENTITY_TICK_SKIPS.set(0);
     }
 
     public static String phase6Summary() {
@@ -101,7 +107,9 @@ public final class HullProfiler {
                 + String.format(" | collider boundsIncr=%d boundsScan=%d sectionReplays=%d",
                 BOUNDS_INCREMENTAL.get(), BOUNDS_FULL_SCANS.get(), COLLIDER_SECTION_REPLAYS.get())
                 + String.format(" | contraption poseSkips=%d entitySkips=%d heatSkips=%d",
-                CONTRAPTION_POSE_SKIPS.get(), CONTRAPTION_ENTITY_SKIPS.get(), HEATMAP_SKIPS.get());
+                CONTRAPTION_POSE_SKIPS.get(), CONTRAPTION_ENTITY_SKIPS.get(), HEATMAP_SKIPS.get())
+                + String.format(" | be blockSkips=%d actorSkips=%d entitySkips=%d",
+                BLOCK_ENTITY_SKIPS.get(), ACTOR_TICK_SKIPS.get(), ENTITY_TICK_SKIPS.get());
     }
 
     public static String summary() {

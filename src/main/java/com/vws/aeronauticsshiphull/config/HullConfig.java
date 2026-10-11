@@ -47,6 +47,8 @@ public final class HullConfig {
     private static final ModConfigSpec.IntValue COLLIDER_SECTION_REPLAY_AT;
     private static final ModConfigSpec.BooleanValue CONTRAPTION_TICK;
     private static final ModConfigSpec.IntValue CONTRAPTION_ENTITY_PERIOD;
+    private static final ModConfigSpec.BooleanValue BLOCK_ENTITY_TICK;
+    private static final ModConfigSpec.IntValue BLOCK_ENTITY_PERIOD;
 
     static {
         ModConfigSpec.Builder b = new ModConfigSpec.Builder();
@@ -147,6 +149,13 @@ public final class HullConfig {
         CONTRAPTION_ENTITY_PERIOD = b.comment("Contraption entity tick period on a parked ship with no player nearby (1 = every tick)")
                 .defineInRange("contraptionEntityPeriod", 4, 1, 20);
         b.pop();
+        b.push("blockEntityTick");
+        BLOCK_ENTITY_TICK = b.comment("On a parked ship with no player within wakeRadius, tick block entities and Sable actors "
+                + "every blockEntityPeriod ticks, and do not tick non-player entities in the plot")
+                .define("enabled", true);
+        BLOCK_ENTITY_PERIOD = b.comment("Block-entity tick period on an unattended parked ship (1 = every tick)")
+                .defineInRange("blockEntityPeriod", 4, 1, 20);
+        b.pop();
         b.pop();
         SPEC = b.build();
     }
@@ -191,6 +200,8 @@ public final class HullConfig {
     public static int colliderSectionReplayAt() { return COLLIDER_SECTION_REPLAY_AT.get(); }
     public static boolean contraptionTick() { return CONTRAPTION_TICK.get(); }
     public static int contraptionEntityPeriod() { return CONTRAPTION_ENTITY_PERIOD.get(); }
+    public static boolean blockEntityTick() { return BLOCK_ENTITY_TICK.get(); }
+    public static int blockEntityPeriod() { return BLOCK_ENTITY_PERIOD.get(); }
 
     private HullConfig() {}
 }

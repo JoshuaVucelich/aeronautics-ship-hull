@@ -11,6 +11,8 @@
     "ServerSubLevelMixin",
     "RapierContraptionPoseMixin",
     "AbstractContraptionEntityTickMixin",
+    "LevelBlockEntityTickMixin",
+    "ServerLevelEntityTickMixin",
     "SubLevelPhysicsSystemMixin",
     "accessor.RapierPhysicsPipelineAccessor",
     "accessor.Rapier3DInvoker"
