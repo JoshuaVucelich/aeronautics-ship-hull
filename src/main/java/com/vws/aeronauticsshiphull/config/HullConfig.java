@@ -8,8 +8,12 @@ import net.neoforged.neoforge.common.ModConfigSpec;
 
 public final class HullConfig {
     private static final Logger LOGGER = LogUtils.getLogger();
-    /** A missing {@code configVersion} reads as 1. Version 2 has rewritten {@code absurdAngular} 40 to 80. */
-    public static final int CONFIG_VERSION_CURRENT = 2;
+    /**
+     * A missing {@code configVersion} reads as 1. Version 2 rewrote {@code absurdAngular} 40 to 80.
+     * Version 3 turns {@code enabled} off. The benchmark showed no jitter-free gain, so an
+     * already-installed file migrates to off instead of keeping the physics cuts.
+     */
+    public static final int CONFIG_VERSION_CURRENT = 3;
     public static final ModConfigSpec SPEC;
     private static final ModConfigSpec.IntValue CONFIG_VERSION;
     private static final ModConfigSpec.BooleanValue SAFE_MODE;
@@ -71,8 +75,9 @@ public final class HullConfig {
         ModConfigSpec.Builder b = new ModConfigSpec.Builder();
         b.push("ship_hull");
         CONFIG_VERSION = b.comment("Internal migration counter. A missing key is version 1. "
-                + "Loading version 1 rewrites absurdAngular 40 to 80 and saves this as 2. "
-                + "A file that already says 2 keeps the absurdAngular written there.")
+                + "Loading version 1 rewrites absurdAngular 40 to 80. "
+                + "Loading anything below 3 turns enabled off and saves this as 3. "
+                + "A file that already says 3 keeps the enabled value written there.")
                 .defineInRange("configVersion", 1, 1, 1000);
         SAFE_MODE = b.comment("Global kill switch. When true, every parked ship is woken and nothing new is parked. "
                 + "/shiphull safe-mode on does the same immediately. /shiphull safe-mode off clears that override "
@@ -82,7 +87,9 @@ public final class HullConfig {
                 + "are each at least this many milliseconds apart. One GC pause does not wake. The first tick after "
                 + "startup is ignored. 0 disables the check.")
                 .defineInRange("lagWakeMillis", 500, 0, 60000);
-        ENABLED = b.comment("Master switch for hull cheap-physics diversion").define("enabled", true);
+        ENABLED = b.comment("Master switch for hull cheap-physics diversion. Version 3 defaults this to false. "
+                + "Set configVersion to 3 and this to true to turn the cuts back on.")
+                .define("enabled", false);
         CHEAP_PERIOD_TICKS = b.comment("Ticks between CHEAP integrator steps (2=10Hz, 4=5Hz)")
                 .defineInRange("cheapPeriodTicks", 2, 1, 20);
         QUIET_TICKS_BEFORE_CHEAP = b.comment("Full-Rapier quiet ticks before demoting unpiloted ship to CHEAP")
@@ -214,8 +221,9 @@ public final class HullConfig {
     public static int configVersion() { return CONFIG_VERSION.get(); }
 
     /**
-     * Rewrite an old absurdAngular of 40 up to 80, then stamp {@link #CONFIG_VERSION_CURRENT}.
-     * A file that already reached that version is left alone, even if it still says 40.
+     * Rewrite an old absurdAngular of 40 up to 80, turn the mod off, then stamp
+     * {@link #CONFIG_VERSION_CURRENT}. A file that already reached version 3 is left alone,
+     * so {@code enabled=true} there stays on.
      */
     public static void migrate() {
         try {
@@ -223,6 +231,10 @@ public final class HullConfig {
             if (CONFIG_VERSION.get() < 2 && Math.abs(ABSURD_ANGULAR.get() - 40.0) < 1.0e-4) {
                 ABSURD_ANGULAR.set(80.0);
                 LOGGER.warn("[shiphull] migrated absurdAngular from 40 to 80");
+            }
+            if (CONFIG_VERSION.get() < 3 && ENABLED.get()) {
+                ENABLED.set(false);
+                LOGGER.warn("[shiphull] migrated enabled to false; ship hull cuts are off");
             }
             CONFIG_VERSION.set(CONFIG_VERSION_CURRENT);
             SPEC.save();
