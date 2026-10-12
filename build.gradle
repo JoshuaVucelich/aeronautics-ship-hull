@@ -134,6 +134,23 @@ tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8'
 }
 
+// Headless benchmark probe. Separate jar so a baseline server can load it without this mod.
+sourceSets {
+    bench {
+        java.srcDir 'bench/src/main/java'
+        resources.srcDir 'bench/src/main/resources'
+        compileClasspath += sourceSets.main.compileClasspath
+    }
+}
+
+tasks.register('benchJar', Jar) {
+    group = 'build'
+    description = 'Probe mod that measures MSPT, pose desync, and client interpolation jitter.'
+    dependsOn tasks.named('compileBenchJava'), tasks.named('processBenchResources')
+    archiveBaseName = 'shiphull-bench-probe'
+    from sourceSets.bench.output
+}
+
 idea {
     module {
         downloadSources = true

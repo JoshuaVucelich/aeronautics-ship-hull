@@ -1,0 +1,31 @@
+modLoader = "javafml"
+loaderVersion = "[4,)"
+license = "CC0-1.0"
+
+[[mods]]
+modId = "shiphull_bench"
+version = "1.0.0"
+displayName = "Ship Hull Bench Probe"
+authors = "Joshua Vucelich"
+description = '''Headless probe for the Huge Josh Land pack. Measures MSPT, Sable client pose desync, and second-order position jitter. Does not change physics.'''
+
+[[dependencies.shiphull_bench]]
+modId = "neoforge"
+type = "required"
+versionRange = "[21.1.228,)"
+ordering = "NONE"
+side = "BOTH"
+
+[[dependencies.shiphull_bench]]
+modId = "minecraft"
+type = "required"
+versionRange = "[1.21.1]"
+ordering = "NONE"
+side = "BOTH"
+
+[[dependencies.shiphull_bench]]
+modId = "sable"
+type = "required"
+versionRange = "[2.0.3,3.0.0)"
+ordering = "AFTER"
+side = "BOTH"
