@@ -15,6 +15,7 @@ public final class HullConfig {
     private static final ModConfigSpec.BooleanValue SAFE_MODE;
     private static final ModConfigSpec.IntValue LAG_WAKE_MILLIS;
     private static final ModConfigSpec.BooleanValue ENABLED;
+    private static final ModConfigSpec.BooleanValue SYNC_SAFE;
     private static final ModConfigSpec.IntValue CHEAP_PERIOD_TICKS;
     private static final ModConfigSpec.IntValue QUIET_TICKS_BEFORE_CHEAP;
     private static final ModConfigSpec.IntValue REBUILD_WINDOW_TICKS;
@@ -83,6 +84,14 @@ public final class HullConfig {
                 + "startup is ignored. 0 disables the check.")
                 .defineInRange("lagWakeMillis", 500, 0, 60000);
         ENABLED = b.comment("Master switch for hull cheap-physics diversion").define("enabled", true);
+        SYNC_SAFE = b.comment("Default on. Keeps the client on the same pose Sable already sent: "
+                + "pose packets are not withheld, nothing is teleported or velocity-reset after the send, "
+                + "and Rapier is not paused or strided. Idle bodies use Rapier's own island sleep, and a "
+                + "touching or jointed group is woken together so one member cannot stay live against a "
+                + "sleeping partner. The hull AABB is applied once. Ships with no tracking player skip "
+                + "block-entity, actor, heat-map, and contraption work. Set false to restore the older "
+                + "park, coast, cheap-step, and network-throttle paths.")
+                .define("syncSafe", true);
         CHEAP_PERIOD_TICKS = b.comment("Ticks between CHEAP integrator steps (2=10Hz, 4=5Hz)")
                 .defineInRange("cheapPeriodTicks", 2, 1, 20);
         QUIET_TICKS_BEFORE_CHEAP = b.comment("Full-Rapier quiet ticks before demoting unpiloted ship to CHEAP")
@@ -234,6 +243,7 @@ public final class HullConfig {
     public static boolean safeMode() { return SAFE_MODE.get(); }
     public static int lagWakeMillis() { return LAG_WAKE_MILLIS.get(); }
     public static boolean enabled() { return ENABLED.get(); }
+    public static boolean syncSafe() { return SYNC_SAFE.get(); }
     public static int cheapPeriodTicks() { return CHEAP_PERIOD_TICKS.get(); }
     public static int quietTicksBeforeCheap() { return QUIET_TICKS_BEFORE_CHEAP.get(); }
     public static int rebuildWindowTicks() { return REBUILD_WINDOW_TICKS.get(); }

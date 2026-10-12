@@ -22,7 +22,9 @@ import net.neoforged.neoforge.event.level.LevelEvent;
 import net.neoforged.neoforge.event.entity.player.PlayerEvent;
 import net.neoforged.neoforge.event.server.ServerStartingEvent;
 import net.neoforged.neoforge.event.server.ServerStoppingEvent;
+import net.neoforged.bus.api.EventPriority;
 import net.neoforged.neoforge.event.tick.LevelTickEvent;
+import net.neoforged.neoforge.event.tick.ServerTickEvent;
 
 /**
  * Aeronautics Ship Hull (Phase 3).
@@ -45,6 +47,7 @@ public class AeronauticsShipHull {
         NeoForge.EVENT_BUS.addListener(this::onPlayerLogin);
         NeoForge.EVENT_BUS.addListener(this::onRegisterCommands);
         NeoForge.EVENT_BUS.addListener(this::onLevelTickPost);
+        NeoForge.EVENT_BUS.addListener(EventPriority.LOWEST, this::onServerTickPost);
         NeoForge.EVENT_BUS.addListener(this::onLevelUnload);
     }
 
@@ -80,8 +83,9 @@ public class AeronauticsShipHull {
             ShipHullManager.safeModeForced = true;
             LOGGER.error("[shiphull] anomaly: shiphull.forceSafeMode is set; safe-mode is forced on. /shiphull safe-mode off cannot clear it.");
         }
-        LOGGER.info("{} ready; hull mode {} safeMode={} forced={} (parked state is not saved; ships register in FULL)",
-                MOD_ID, HullConfig.enabled() ? "ENABLED" : "disabled", ShipHullManager.safeMode(), ShipHullManager.safeModeForced);
+        LOGGER.info("{} ready; hull mode {} syncSafe={} safeMode={} forced={} (parked state is not saved; ships register in FULL)",
+                MOD_ID, HullConfig.enabled() ? "ENABLED" : "disabled", HullConfig.syncSafe(),
+                ShipHullManager.safeMode(), ShipHullManager.safeModeForced);
     }
 
     /**
@@ -125,6 +129,17 @@ public class AeronauticsShipHull {
     private void onLevelTickPost(LevelTickEvent.Post event) {
         if (event.getLevel() instanceof ServerLevel sl) {
             ShipHullManager.get(sl).endTick();
+        }
+    }
+
+    /** After spawn and block placement, so the one-shot hull AABB is not inside the measured tick. */
+    private void onServerTickPost(ServerTickEvent.Post event) {
+        for (ServerLevel level : event.getServer().getAllLevels()) {
+            try {
+                ShipHullManager.get(level).sealColliders();
+            } catch (Throwable t) {
+                ShipHullManager.anomaly("collider seal failed: " + t);
+            }
         }
     }
 

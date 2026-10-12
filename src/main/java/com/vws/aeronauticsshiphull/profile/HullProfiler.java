@@ -27,6 +27,8 @@ public final class HullProfiler {
     public static final AtomicLong WAKES = new AtomicLong();
     /** Times a connected group was frozen together. */
     public static final AtomicLong GROUP_PARKS = new AtomicLong();
+    /** Times a mixed-speed or impulse-hit group was woken together before the step. */
+    public static final AtomicLong ATOMIC_GROUP_WAKES = new AtomicLong();
     /** Times the last good pose was restored. */
     public static final AtomicLong POSE_RESTORES = new AtomicLong();
     public static final AtomicLong PARKED_DRIFT_FIXES = new AtomicLong();
@@ -78,6 +80,7 @@ public final class HullProfiler {
         PARKS.set(0);
         WAKES.set(0);
         GROUP_PARKS.set(0);
+        ATOMIC_GROUP_WAKES.set(0);
         POSE_RESTORES.set(0);
         PARKED_DRIFT_FIXES.set(0);
         COLLIDER_UPDATES_DEFERRED.set(0);
@@ -108,10 +111,10 @@ public final class HullProfiler {
         long sc = SABLE_TICK_CALLS.get();
         double sableUs = sc == 0 ? 0.0 : (SABLE_TICK_NS.get() / 1000.0) / sc;
         return String.format(
-                "sableTickCalls=%d sableTickAvgUs=%.1f idleSkips=%d reducedSubstepTicks=%d dormantSkips=%d parks=%d wakes=%d driftFixes=%d colliderDeferred=%d colliderReplayed=%d groupParks=%d poseRestores=%d",
+                "sableTickCalls=%d sableTickAvgUs=%.1f idleSkips=%d reducedSubstepTicks=%d dormantSkips=%d parks=%d wakes=%d driftFixes=%d colliderDeferred=%d colliderReplayed=%d groupParks=%d poseRestores=%d atomicWakes=%d",
                 sc, sableUs, IDLE_STEP_SKIPS.get(), REDUCED_SUBSTEP_TICKS.get(), DORMANT_WORK_SKIPS.get(),
                 PARKS.get(), WAKES.get(), PARKED_DRIFT_FIXES.get(), COLLIDER_UPDATES_DEFERRED.get(), COLLIDER_UPDATES_REPLAYED.get(),
-                GROUP_PARKS.get(), POSE_RESTORES.get())
+                GROUP_PARKS.get(), POSE_RESTORES.get(), ATOMIC_GROUP_WAKES.get())
                 + String.format(" | p7 aabbOn=%d aabbOff=%d massSkip=%d distantCheap=%d netThrottle=%d blockSkip=%d",
                 HULL_AABB_APPLIES.get(), HULL_AABB_RESTORES.get(), MASS_CACHE_SKIPS.get(),
                 DISTANT_CHEAP_STEPS.get(), NETWORK_THROTTLES.get(), BLOCK_COLLIDER_SKIPS.get())

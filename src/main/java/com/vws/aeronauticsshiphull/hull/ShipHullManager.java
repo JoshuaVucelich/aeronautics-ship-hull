@@ -106,6 +106,9 @@ public final class ShipHullManager {
     /** World AABBs of parked unattended ships, rebuilt once per tick. */
     private final ArrayList<AABB> parkedWorldBoxes = new ArrayList<>();
     private long parkedWorldTick = Long.MIN_VALUE;
+    /** World AABBs of ships with no tracking player, rebuilt once per tick. */
+    private final ArrayList<AABB> untrackedWorldBoxes = new ArrayList<>();
+    private long untrackedWorldTick = Long.MIN_VALUE;
     /** Chunk -> 1 allow, 2 skip. Cleared when the game time changes. 0 means absent. */
     private final Long2ByteOpenHashMap entitySyncCache = new Long2ByteOpenHashMap();
     private long entitySyncCacheTick = Long.MIN_VALUE;
@@ -114,6 +117,8 @@ public final class ShipHullManager {
     private long throttledWorldTick = Long.MIN_VALUE;
     /** Connectivity rebuilt once per end tick and on park/wake commands. */
     private List<ParkGroups.Group> groupsThisTick = List.of();
+    /** Ship count at the last atomic-wake group rebuild. */
+    private int groupedShipCount;
     /** Ships added since the last group rebuild. Flushed once per physics tick, not once per ship. */
     private final Set<UUID> pendingAdds = ConcurrentHashMap.newKeySet();
     /** Hulls that contained a moving non-player on the last shared entity scan. */
@@ -162,6 +167,11 @@ public final class ShipHullManager {
 
     public boolean globallyEnabled() {
         return globallyEnabled && HullConfig.enabled();
+    }
+
+    /** Packets, velocities, and the Rapier step stay intact. See {@link HullConfig#syncSafe()}. */
+    public boolean syncSafe() {
+        return globallyEnabled() && HullConfig.syncSafe();
     }
 
     public void setGloballyEnabled(boolean v) {
@@ -279,6 +289,7 @@ public final class ShipHullManager {
         if (hull == null) return;
         hull.blockChangesThisTick++;
         hull.onBlockChange(pos, oldSt, newSt);
+        if (hull.simplifiedHullCollider) hull.aabbDirty = true;
         // Explosion edits are counted here and applied after the ship has already left PARKED.
         if (hull.blockEditsCountOnly) return;
         if (hull.mode == HullMode.PARKED) {
@@ -314,6 +325,12 @@ public final class ShipHullManager {
 
     /** Parked, or settled CHEAP: the welded contraption pose cannot have moved. */
     public boolean skipContraptionPose(double x, double y, double z) {
+        if (syncSafe()) {
+            ShipHull idle = hullAt(x, y, z);
+            if (idle == null || !idle.poseReady() || idle.subLevel() == null) return false;
+            if (!trackingEmpty(idle.subLevel())) return false;
+            return speedOrZero(idle) <= HullConfig.parkMaxSpeed();
+        }
         if (!contraptionTick()) return false;
         ShipHull h = hullAt(x, y, z);
         if (h == null || !h.enabled || !h.poseReady()) return false;
@@ -325,6 +342,10 @@ public final class ShipHullManager {
 
     /** True when this contraption entity tick should be skipped (parked, nobody near, off-period). */
     public boolean throttleContraptionEntity(double x, double y, double z, long gameTime) {
+        if (syncSafe()) {
+            ShipHull idle = hullAt(x, y, z);
+            return idle != null && idle.subLevel() != null && trackingEmpty(idle.subLevel());
+        }
         if (!contraptionTick()) return false;
         ShipHull h = hullAt(x, y, z);
         if (h == null || !h.poseReady() || h.voxels.isEmpty() || h.mode != HullMode.PARKED) return false;
@@ -372,11 +393,30 @@ public final class ShipHullManager {
         return false;
     }
 
+    /** True when a world point sits on a ship that no player is tracking. */
+    public boolean untrackedContains(double x, double y, double z) {
+        if (!syncSafe()) return false;
+        long now = level.getGameTime();
+        if (untrackedWorldTick != now) {
+            untrackedWorldTick = now;
+            untrackedWorldBoxes.clear();
+            for (ShipHull hull : ships.values()) {
+                if (!hull.enabled || !hull.poseReady() || hull.subLevel() == null) continue;
+                if (!trackingEmpty(hull.subLevel())) continue;
+                untrackedWorldBoxes.add(hull.worldHullAABB().inflate(2.0));
+            }
+        }
+        for (AABB box : untrackedWorldBoxes) {
+            if (box.contains(x, y, z)) return true;
+        }
+        return false;
+    }
+
     /** CHEAP/PARKED ship whose substep work (begin/mass merge/pose readback) Sable may skip.
      * Phase 7 also skips mass merge for unpiloted simplified-hull FULL ships (cached mass).
      * Pose readback stays on for FULL ships so a diverging body is visible to the pose guard. */
     public boolean skipDormantWork(ServerSubLevel sub) {
-        if (!globallyEnabled()) return false;
+        if (!globallyEnabled() || syncSafe()) return false;
         ShipHull h = ships.get(sub.getUniqueId());
         if (h == null || !h.enabled) return false;
         if (phase6() && HullConfig.skipDormantSubstepWork() && h.mode.dormant()) return true;
@@ -391,7 +431,10 @@ public final class ShipHullManager {
         if (h != null && h.enabled && sharesConstraint(h)) return false;
         if (skipDormantWork(sub)) return true;
         if (h == null || !h.enabled) return false;
-        if (phase7() && HullConfig.cacheMass() && h.simplifiedHullCollider && !h.piloted && h.mode == HullMode.FULL) {
+        boolean cache = h.simplifiedHullCollider && !h.piloted && h.mode == HullMode.FULL
+                && h.blockChangesThisTick == 0 && massReady(h) && !contraptionsPresent(h)
+                && (syncSafe() || (phase7() && HullConfig.cacheMass()));
+        if (cache) {
             HullProfiler.MASS_CACHE_SKIPS.incrementAndGet();
             return true;
         }
@@ -400,6 +443,7 @@ public final class ShipHullManager {
 
     /** Called at the head of Sable's substep loop: skip it entirely this tick? */
     public boolean shouldSkipStep(SubLevelPhysicsSystem sys) {
+        if (syncSafe()) return false;
         if (!idleNext) return false;
         // Live re-check: a ship assembled/woken this tick must simulate.
         for (ShipHull h : ships.values()) {
@@ -410,7 +454,7 @@ public final class ShipHullManager {
     }
 
     public boolean reducedSubsteps() {
-        return reducedNext;
+        return !syncSafe() && reducedNext;
     }
 
     /**
@@ -421,6 +465,7 @@ public final class ShipHullManager {
      */
     public boolean shouldCoastStep() {
         coastedThisTick = false;
+        if (syncSafe()) return false;
         if (!phase8() || !globallyEnabled() || !HullConfig.coastSeparated()) return false;
         int period = HullConfig.coastRealStepEvery();
         if (period <= 1) return false;
@@ -445,7 +490,7 @@ public final class ShipHullManager {
 
     /** Real step, but nobody is piloting or standing near a Rapier ship: solver can run fewer iterations. */
     public boolean distantSolverThisTick() {
-        return phase8() && globallyEnabled() && HullConfig.distantSolver() && reducedNext;
+        return !syncSafe() && phase8() && globallyEnabled() && HullConfig.distantSolver() && reducedNext;
     }
 
     private boolean coastClear(ShipHull hull) {
@@ -501,11 +546,13 @@ public final class ShipHullManager {
         stepRanSinceSync = true;
     }
 
-    /** Pipeline hook: something outside this mod pushed/moved a parked body. */
+    /** Pipeline hook: something outside this mod pushed/moved a body. */
     public void requestWake(ServerSubLevel sub, String why) {
         if (INTERNAL) return;
         ShipHull h = ships.get(sub.getUniqueId());
-        if (h != null && h.mode == HullMode.PARKED && !h.wakeRequested) {
+        if (h == null) return;
+        h.groupImpulse = true;
+        if (h.mode == HullMode.PARKED && !h.wakeRequested) {
             h.wakeRequested = true;
             h.lastWakeReason = why;
         }
@@ -530,9 +577,9 @@ public final class ShipHullManager {
         if (REPLAYING) return false;
         ShipHull h = ships.get(sub.getUniqueId());
         if (h == null) return false;
-        boolean soft = phase6() && HullConfig.batchColliderUpdates() && h.collidersDisabled;
-        boolean rigid = phase7() && HullConfig.skipBlockColliderWhileMoving()
-                && (h.simplifiedHullCollider || h.mode == HullMode.CHEAP);
+        boolean soft = !syncSafe() && phase6() && HullConfig.batchColliderUpdates() && h.collidersDisabled;
+        boolean rigid = h.simplifiedHullCollider && (syncSafe() || (phase7() && HullConfig.skipBlockColliderWhileMoving()))
+                || (!syncSafe() && h.mode == HullMode.CHEAP && phase7() && HullConfig.skipBlockColliderWhileMoving());
         if (!soft && !rigid) return false;
         h.pendingColliderBlocks.add(BlockPos.asLong(gx, gy, gz));
         HullProfiler.COLLIDER_UPDATES_DEFERRED.incrementAndGet();
@@ -689,6 +736,10 @@ public final class ShipHullManager {
      * velocity. The solver then cannot integrate a joint against a partner that already ran away.
      */
     public void pinParkedBeforeStep() {
+        if (syncSafe()) {
+            keepGroupsAtomic();
+            return;
+        }
         if (!phase6() || !globallyEnabled()) return;
         SubLevelPhysicsSystem phys = SubLevelPhysicsSystem.get(level);
         if (phys == null) return;
@@ -706,7 +757,7 @@ public final class ShipHullManager {
      * to spin. One body is never teleported on its own.
      */
     public void clampJointedBeforeStep() {
-        if (!globallyEnabled()) return;
+        if (syncSafe() || !globallyEnabled()) return;
         SubLevelPhysicsSystem phys = SubLevelPhysicsSystem.get(level);
         if (phys == null) return;
         PhysicsPipeline pipe = phys.getPipeline();
@@ -1017,6 +1068,10 @@ public final class ShipHullManager {
 
     /** Park this ship and every sub-level linked to it. Returns the group size, or 0 if the group is not safe to freeze. */
     public int parkNow(ShipHull hull, long gameTime) {
+        if (syncSafe()) {
+            anomaly("refused to park " + hull.id + "; sync-safe does not park a subset of a group");
+            return 0;
+        }
         if (safeMode()) {
             anomaly("refused to park " + hull.id + "; safe-mode is on");
             return 0;
@@ -1119,6 +1174,7 @@ public final class ShipHullManager {
 
     /** Freeze or wake each connected group in this tick. Never leave a parked body tied to a live one. */
     private void updateGroups(long gameTime) {
+        if (syncSafe()) return;
         try {
             if (safeMode()) {
                 for (ParkGroups.Group group : groupsThisTick) {
@@ -1516,7 +1572,11 @@ public final class ShipHullManager {
      * on every load and unload.
      */
     private void ensureHull(ShipHull hull) {
-        if (level.getGameTime() % 10L != 0L) return;
+        ensureHull(hull, false);
+    }
+
+    private void ensureHull(ShipHull hull, boolean force) {
+        if (!force && level.getGameTime() % 10L != 0L) return;
         int chunks = loadedChunkCount(hull);
         boolean chunkChanged = chunks >= 0 && chunkCountHeld(hull, chunks) && chunks != hull.scannedChunkCount;
         boolean plotChanged = plotBoxChanged(hull);
@@ -1629,6 +1689,17 @@ public final class ShipHullManager {
         }
     }
 
+    private boolean contraptionsPresent(ShipHull hull) {
+        try {
+            var plot = hull.subLevel().getPlot();
+            if (plot == null) return false;
+            var contraptions = plot.getContraptions();
+            return contraptions != null && !contraptions.isEmpty();
+        } catch (Throwable t) {
+            return true;
+        }
+    }
+
     private boolean massReady(ShipHull hull) {
         try {
             MassTracker tracker = hull.subLevel().getSelfMassTracker();
@@ -1670,6 +1741,8 @@ public final class ShipHullManager {
             hull.simplifiedHullCollider = true;
             hull.massCached = true;
             HullProfiler.HULL_AABB_APPLIES.incrementAndGet();
+            LOGGER.info("[shiphull] sealed collider {} voxels={} bounds={},{},{} {},{},{}",
+                    hull.id, hull.voxels.size(), minX, minY, minZ, maxX, maxY, maxZ);
         } catch (Throwable t) {
             LOGGER.warn("[shiphull] hull-AABB collider failed for {}: {}", hull.id, t.toString());
         }
@@ -1733,6 +1806,7 @@ public final class ShipHullManager {
      * Sable's within-tolerance branch, which is what actually skips the packet.
      */
     public boolean throttlePoseSend(ServerSubLevel sub) {
+        if (syncSafe()) return false;
         if (!shipSyncEnabled() || sub == null || sub.isRemoved()) return false;
         ShipHull hull = ships.get(sub.getUniqueId());
         if (hull == null || !hull.enabled || !hull.poseReady()) return false;
@@ -1761,6 +1835,7 @@ public final class ShipHullManager {
      * Players, and anything carrying a player, keep full rate. The chunk decision is cached for the tick.
      */
     public boolean throttleEntitySync(Entity entity) {
+        if (syncSafe()) return false;
         if (!shipSyncEnabled() || entity == null || entity instanceof Player) return false;
         for (Entity passenger : entity.getPassengers()) {
             if (passenger instanceof Player) return false;
@@ -1958,11 +2033,124 @@ public final class ShipHullManager {
         }
     }
 
+    /**
+     * Before the Rapier step, wake a touching or jointed group together when one member is moving
+     * or was just pushed and another is still. Rapier sleeps an idle island on its own. Waking
+     * every tick would keep that island awake, so a group that is entirely still is left alone.
+     * Parking a subset is what launched the airship after the grabbers froze.
+     */
+    private void keepGroupsAtomic() {
+        double still = HullConfig.parkMaxSpeed();
+        boolean crossed = false;
+        boolean anyFast = false;
+        boolean impulse = false;
+        int live = 0;
+        for (ShipHull hull : ships.values()) {
+            if (hull.subLevel() == null || hull.subLevel().isRemoved()) continue;
+            live++;
+            boolean fast = speedOrZero(hull) > still;
+            if (fast != hull.wasFast) {
+                hull.wasFast = fast;
+                crossed = true;
+            }
+            if (fast) anyFast = true;
+            if (hull.groupImpulse) impulse = true;
+        }
+        if (live != groupedShipCount || crossed || impulse) {
+            refreshGroups();
+            groupedShipCount = live;
+        }
+        if (anyFast || impulse) {
+            SubLevelPhysicsSystem phys = SubLevelPhysicsSystem.get(level);
+            PhysicsPipeline pipe = phys == null ? null : phys.getPipeline();
+            List<JointLinks.Edge> edges = JointLinks.forStep();
+            if (pipe != null) {
+                for (ParkGroups.Group group : groupsThisTick) {
+                    boolean jointed = anyShares(group.members, edges);
+                    if (group.members.size() <= 1 && !jointed) continue;
+                    boolean fast = false;
+                    boolean slow = false;
+                    boolean pushed = false;
+                    for (ShipHull member : group.members) {
+                        if (member.wasFast) fast = true;
+                        else slow = true;
+                        if (member.groupImpulse) pushed = true;
+                    }
+                    if (!pushed && !(fast && slow)) continue;
+                    for (ShipHull member : group.members) {
+                        ServerSubLevel sub = member.subLevel();
+                        if (sub == null || sub.isRemoved()) continue;
+                        try {
+                            pipe.wakeUp(sub);
+                        } catch (Throwable t) {
+                            anomaly("atomic wake failed for " + member.id + ": " + t);
+                        }
+                    }
+                    HullProfiler.ATOMIC_GROUP_WAKES.incrementAndGet();
+                }
+            }
+        }
+        for (ShipHull hull : ships.values()) hull.groupImpulse = false;
+    }
+
+    /** Apply the hull AABB once, outside the physics step. A later block edit reapplies that one box. */
+    public void sealColliders() {
+        if (!syncSafe()) return;
+        for (ShipHull hull : ships.values()) {
+            if (hull.subLevel() == null || hull.subLevel().isRemoved() || !hull.enabled) continue;
+            if (hull.simplifiedHullCollider && !hull.aabbDirty) continue;
+            if (!hull.hullValid || hull.voxels.isEmpty()) ensureHull(hull, true);
+            if (!hull.hullValid) continue;
+            applyHullAabbCollider(hull);
+            hull.aabbDirty = false;
+        }
+    }
+
+    private static boolean trackingEmpty(ServerSubLevel sub) {
+        try {
+            var players = sub.getTrackingPlayers();
+            return players == null || players.isEmpty();
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    private static double speedOrZero(ShipHull hull) {
+        try {
+            ServerSubLevel sub = hull.subLevel();
+            if (sub == null || sub.isRemoved() || sub.latestLinearVelocity == null) return 0.0;
+            return sub.latestLinearVelocity.length();
+        } catch (Throwable t) {
+            return 0.0;
+        }
+    }
+
+    /** No teleport, no velocity reset, no mode demotion. Colliders are sealed on the server post tick. */
+    private void endTickSyncSafe(long gameTime) {
+        for (ShipHull hull : ships.values()) {
+            ServerSubLevel sub = hull.subLevel();
+            if (!hull.enabled || sub == null || sub.isRemoved()) continue;
+            if (hull.mode != HullMode.FULL) hull.setMode(HullMode.FULL, gameTime);
+            updatePiloted(hull);
+            hull.blockChangesThisTick = 0;
+            if (sub.latestLinearVelocity != null) hull.linearVel.set(sub.latestLinearVelocity);
+            if (sub.latestAngularVelocity != null) hull.angularVel.set(sub.latestAngularVelocity);
+            hull.rapierSteps++;
+            HullProfiler.RAPIER_STEPS.incrementAndGet();
+        }
+        stepRanSinceSync = false;
+        coastedThisTick = false;
+    }
+
     /** Level tick: pilot detect, mode transitions, CHEAP integrate, nested poses, routes. */
     public void endTick() {
         tickCounter++;
         long gameTime = level.getGameTime();
         syncFromContainer();
+        if (syncSafe()) {
+            endTickSyncSafe(gameTime);
+            return;
+        }
         if (globallyEnabled()) syncRapierMembership();
         if (phase6() && globallyEnabled()) {
             flushPendingGroups();

@@ -52,6 +52,12 @@ public final class ShipHull {
     public boolean collidersDisabled = false;
     /** Phase 7: Rapier local bounds replaced with a single hull AABB. */
     public boolean simplifiedHullCollider = false;
+    /** Hull bounds changed after the one-shot AABB was applied. */
+    public boolean aabbDirty;
+    /** Linear speed was above parkMaxSpeed on the previous atomic-wake check. */
+    public boolean wasFast;
+    /** An external impulse landed on this body since the last physics step. */
+    public boolean groupImpulse;
     public boolean massCached = false;
     public long lastNetworkPulseTick;
     public boolean enabled = true;

@@ -27,7 +27,7 @@ public final class ShipTickGate {
     private ShipTickGate() {}
 
     public static boolean allowBlockEntity(ServerLevel level, BlockPos pos) {
-        if (!ShipHullManager.blockEntityTick()) return true;
+        if (!HullConfig.syncSafe() && !ShipHullManager.blockEntityTick()) return true;
         long now = level.getGameTime();
         beginTick(now);
         long key = ChunkPos.asLong(pos.getX() >> 4, pos.getZ() >> 4);
@@ -43,11 +43,13 @@ public final class ShipTickGate {
     public static boolean skipEntity(ServerLevel level, Entity entity) {
         if (skipEntity(level, entity.blockPosition())) return true;
         ShipHullManager mgr = ShipHullManager.getOrNull(level);
-        return mgr != null && mgr.parkedUnattendedContains(entity.getX(), entity.getY(), entity.getZ());
+        if (mgr == null) return false;
+        if (HullConfig.syncSafe()) return mgr.untrackedContains(entity.getX(), entity.getY(), entity.getZ());
+        return mgr.parkedUnattendedContains(entity.getX(), entity.getY(), entity.getZ());
     }
 
     public static boolean skipEntity(ServerLevel level, BlockPos pos) {
-        if (!ShipHullManager.blockEntityTick()) return false;
+        if (!HullConfig.syncSafe() && !ShipHullManager.blockEntityTick()) return false;
         long now = level.getGameTime();
         beginTick(now);
         long key = ChunkPos.asLong(pos.getX() >> 4, pos.getZ() >> 4);
@@ -61,6 +63,9 @@ public final class ShipTickGate {
 
     /** Actors on a parked, unattended ship follow the same period as vanilla block entities. */
     public static boolean allowActor(ServerLevel level, ServerSubLevel sub) {
+        if (HullConfig.syncSafe()) {
+            return !trackingEmpty(sub);
+        }
         if (!ShipHullManager.blockEntityTick()) return true;
         ShipHullManager mgr = ShipHullManager.getOrNull(level);
         if (mgr == null) return true;
@@ -70,6 +75,15 @@ public final class ShipTickGate {
         int period = HullConfig.blockEntityPeriod();
         if (period <= 1) return true;
         return Math.floorMod(level.getGameTime() + (hull.id.hashCode() & 1023), period) == 0;
+    }
+
+    private static boolean trackingEmpty(ServerSubLevel sub) {
+        try {
+            var players = sub.getTrackingPlayers();
+            return players == null || players.isEmpty();
+        } catch (Throwable t) {
+            return false;
+        }
     }
 
     private static void beginTick(long now) {
@@ -88,6 +102,10 @@ public final class ShipTickGate {
         ShipHullManager mgr = ShipHullManager.getOrNull(level);
         if (mgr == null) return true;
         ShipHull hull = mgr.get(sub);
+        if (HullConfig.syncSafe()) {
+            if (hull == null || !hull.enabled || !hull.poseReady()) return true;
+            return !trackingEmpty(sub);
+        }
         if (hull == null || !hull.enabled || !hull.poseReady() || hull.mode != HullMode.PARKED) return true;
         if (mgr.isPlayerNear(hull, HullConfig.wakeRadius())) return true;
         if (entities) return false;

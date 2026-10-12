@@ -53,6 +53,7 @@ public final class PoseGuard {
 
     public static void beforeTick(ServerSubLevel sub) {
         try {
+            if (HullConfig.syncSafe()) return;
             if (sub == null || sub.isRemoved()) return;
             ShipHullManager mgr = ShipHullManager.getOrNull(sub.getLevel());
             if (mgr == null) return;

@@ -57,8 +57,20 @@ public abstract class ServerSubLevelMixin {
             at = @At(value = "INVOKE", target = "Ldev/ryanhcode/sable/sublevel/plot/heat/SubLevelHeatMapManager;tick()V"))
     private boolean ash$heat(SubLevelHeatMapManager heat) {
         try {
-            if (!ShipHullManager.contraptionTick()) return true;
             ServerSubLevel self = (ServerSubLevel) (Object) this;
+            ShipHullManager mgr = ShipHullManager.getOrNull(self.getLevel());
+            if (mgr != null && mgr.syncSafe()) {
+                ShipHull hull = mgr.get(self);
+                if (hull != null && hull.poseReady()) {
+                    var tracking = self.getTrackingPlayers();
+                    if (tracking == null || tracking.isEmpty()) {
+                        HullProfiler.HEATMAP_SKIPS.incrementAndGet();
+                        return false;
+                    }
+                }
+                return true;
+            }
+            if (!ShipHullManager.contraptionTick()) return true;
             if (!ash$cheap(self)) return true;
             ShipHull hull = ShipHullManager.getOrNull(self.getLevel()) == null
                     ? null : ShipHullManager.getOrNull(self.getLevel()).get(self);
